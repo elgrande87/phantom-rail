@@ -1,23 +1,29 @@
-# Audio Downloader (Docker für DietPi / Radxa Zero 3W)
+# 👻🚂 phantom-rail
 
-Web-Oberfläche zum Prüfen von Hörbuch-URLs, Voransicht & Bearbeiten von Metadaten und Kapiteln (inkl. Audnexus/Audible-Suche & Massen-Bearbeitungstools) und Zusammenfügen als `.m4b` via `yt-dlp` und `ffmpeg`.
+> Web-Oberfläche & Pipeline zum Herunterladen, Taggen und Binden von Hörbüchern als `.m4b` mit Kapiteln (optimiert für SBCs wie Radxa Zero 3W, DietPi & Raspberry Pi).
 
-Speziell optimiert für Boards mit geringem Arbeitsspeicher (1 GB RAM wie beim Radxa Zero 3W / Raspberry Pi Zero 2W):
-- Temporäre Arbeitsdateien werden auf dem gemounteten Speicher (`/downloads/.tmp_work`) statt in der RAM-Disk (`/tmp`) abgelegt.
-- `ffmpeg` ist auf 2 Threads begrenzt, um CPU und RAM stabil zu halten.
-- Gunicorn läuft mit 1 Worker und 4 Threads.
+## Features
+- 🔍 **Metadaten- & Kapitelsuche:** Automatischer Abgleich via Audnexus & Audible.
+- ✂️ **Batch-Editor:** Schnelles Bereinigen von Kapitelnamen und Textmustern.
+- 📦 **M4B-Container:** Bündelt Audio, Cover-Artworks und Kapitelmarken via `ffmpeg`.
+- 🪶 **Low-RAM-Optimierung:** Speziell angepasst an Einplatinencomputer (z. B. 1 GB RAM):
+  - Temporäre Daten landen direkt auf dem Mount (`/downloads/.tmp_work`), nicht im RAM (`/tmp`).
+  - `ffmpeg` ist ressourcenschonend auf 2 Threads limitiert.
+  - Gunicorn läuft schlank mit 1 Worker und 4 Threads.
 
-## Schnellstart auf DietPi
+---
 
-1. **Docker installieren (falls nicht vorhanden):**
+## Schnellstart auf DietPi / Raspberry Pi
+
+1. **Docker installieren (falls noch nicht vorhanden):**
    ```bash
    sudo dietpi-software install 162 134
    ```
 
 2. **Repository klonen:**
    ```bash
-   git clone https://github.com/elgrande87/audio-downloader.git
-   cd audio-downloader
+   git clone https://github.com/elgrande87/phantom-rail.git
+   cd phantom-rail
    ```
 
 3. **Container starten:**
@@ -25,7 +31,7 @@ Speziell optimiert für Boards mit geringem Arbeitsspeicher (1 GB RAM wie beim R
    docker compose up -d --build
    ```
 
-4. **Im Browser aufrufen:**
+4. **Web-UI öffnen:**
    ```text
-   http://<IP-DEINES-BOARDS>:5000
+   http://<IP-DEINES-GERÄTS>:5000
    ```
