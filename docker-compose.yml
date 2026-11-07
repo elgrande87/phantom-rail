@@ -1,9 +1,10 @@
 version: '3.8'
 
 services:
-  audio-downloader:
+  phantom-rail:
     build: .
-    container_name: audio-downloader
+    container_name: phantom-rail
+    image: phantom-rail:latest
     restart: unless-stopped
     ports:
       - "5000:5000"
