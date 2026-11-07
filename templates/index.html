@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Audiobook & M4B Creator</title>
+    <title>phantom-rail | Audiobook & M4B Creator</title>
     <style>
         :root {
             --bg-color: #0f172a;
@@ -41,6 +41,30 @@
             border-radius: 12px;
             padding: 20px;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+        }
+
+        .header-title {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+
+        .brand-name {
+            font-size: 1.8rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .brand-subtitle {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            font-weight: 500;
         }
 
         h1, h2, h3 {
@@ -242,8 +266,11 @@
 
 <div class="container">
     <div class="card">
-        <h1>Audiobook & M4B Creator</h1>
-        <div class="input-group">
+        <div class="header-title">
+            <span class="brand-name">👻🚂 phantom-rail</span>
+            <span class="brand-subtitle">Audiobook & M4B Chapter Binder</span>
+        </div>
+        <div class="input-group" style="margin-top: 14px;">
             <label for="urlInput">URL (YouTube / Playlist / SoundCloud)</label>
             <input type="url" id="urlInput" placeholder="https://www.youtube.com/playlist?list=..." required>
         </div>
