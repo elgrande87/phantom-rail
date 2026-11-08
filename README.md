@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="static/logo.png" alt="phantom-rail Logo" width="160">
+  <img src="static/logo.svg" alt="phantom-rail Logo" width="160">
 </p>
 
 # 👻🚂 phantom-rail
