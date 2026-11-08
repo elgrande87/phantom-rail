@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="static/logo.png" alt="phantom-rail Logo" width="160">
+</p>
+
 # 👻🚂 phantom-rail
 
 > Web-Oberfläche & Pipeline zum Herunterladen, Taggen und Binden von Hörbüchern als `.m4b` mit Kapiteln (optimiert für SBCs wie Radxa Zero 3W, DietPi & Raspberry Pi).
