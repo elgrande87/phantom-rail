@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#shadow)">
+    <!-- Book Outer Cover Red Background -->
+    <path d="M 88 250 L 246 395 Q 256 404 266 395 L 424 250 L 400 232 L 256 360 L 112 232 Z" fill="#2d1c3a" stroke="#2c2242" stroke-width="8" stroke-linejoin="round"/>
+    <path d="M 92 254 L 248 392 Q 256 398 264 392 L 420 254 L 408 340 Q 256 440 104 340 Z" fill="#d9383a" stroke="#2c2242" stroke-width="14" stroke-linejoin="round"/>
+
+    <!-- Open Book Pages (White/Cream) -->
+    <path d="M 120 220 Q 188 248 256 370 Q 188 340 120 320 Z" fill="#faeed9" stroke="#2c2242" stroke-width="10" stroke-linejoin="round"/>
+    <path d="M 392 220 Q 324 248 256 370 Q 324 340 392 320 Z" fill="#faeed9" stroke="#2c2242" stroke-width="10" stroke-linejoin="round"/>
+    <path d="M 126 215 C 180 230 220 260 256 365 C 292 260 332 230 386 215 L 416 320 C 336 345 286 370 256 392 C 226 370 176 345 96 320 Z" fill="#ffffff" stroke="#2c2242" stroke-width="12" stroke-linejoin="round"/>
+
+    <!-- Book Spine Center Marker -->
+    <line x1="256" y1="335" x2="256" y2="392" stroke="#2c2242" stroke-width="8" stroke-linecap="round"/>
+
+    <!-- Rollercoaster / Minecart Track curving out of the book -->
+    <!-- Track Rails & Sleepers -->
+    <path d="M 170 330 C 240 270 340 280 375 145" fill="none" stroke="#2c2242" stroke-width="26" stroke-linecap="round"/>
+    <path d="M 170 330 C 240 270 340 280 375 145" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round"/>
+
+    <!-- Sleepers (Ties) -->
+    <line x1="184" y1="318" x2="196" y2="338" stroke="#2c2242" stroke-width="8" stroke-linecap="round"/>
+    <line x1="214" y1="298" x2="228" y2="320" stroke="#2c2242" stroke-width="8" stroke-linecap="round"/>
+    <line x1="248" y1="284" x2="264" y2="304" stroke="#2c2242" stroke-width="8" stroke-linecap="round"/>
+    <line x1="284" y1="274" x2="302" y2="292" stroke="#2c2242" stroke-width="8" stroke-linecap="round"/>
+    <line x1="318" y1="258" x2="340" y2="272" stroke="#2c2242" stroke-width="8" stroke-linecap="round"/>
+    <line x1="344" y1="228" x2="368" y2="236" stroke="#2c2242" stroke-width="8" stroke-linecap="round"/>
+    <line x1="358" y1="188" x2="384" y2="190" stroke="#2c2242" stroke-width="8" stroke-linecap="round"/>
+
+    <!-- Ghost Body (Red) -->
+    <g>
+      <!-- Headphone Arch (Behind Head) -->
+      <path d="M 202 160 C 190 90 322 90 310 160" fill="none" stroke="#2c2242" stroke-width="26" stroke-linecap="round"/>
+      <path d="M 202 160 C 190 90 322 90 310 160" fill="none" stroke="#faeed9" stroke-width="12" stroke-linecap="round"/>
+
+      <!-- Ghost Torso / Tail -->
+      <path d="M 195 185 C 195 120 317 120 317 185 C 317 205 328 212 328 212 C 328 212 300 216 288 238 C 270 270 210 282 160 252 C 218 268 245 220 232 195 C 220 210 195 210 195 185 Z" fill="#eb3b3f" stroke="#2c2242" stroke-width="12" stroke-linejoin="round"/>
+
+      <!-- Ghost Eyes -->
+      <circle cx="242" cy="158" r="8" fill="#2c2242"/>
+      <circle cx="274" cy="158" r="8" fill="#2c2242"/>
+
+      <!-- Headphone Ear Cups -->
+      <rect x="186" y="132" width="22" height="36" rx="10" fill="#eb3b3f" stroke="#2c2242" stroke-width="10"/>
+      <rect x="304" y="132" width="22" height="36" rx="10" fill="#eb3b3f" stroke="#2c2242" stroke-width="10"/>
+    </g>
+
+    <!-- Minecart on the Rail -->
+    <g transform="translate(280, 235) rotate(-18)">
+      <!-- Cart Wheels -->
+      <circle cx="16" cy="38" r="8" fill="#fcd34d" stroke="#2c2242" stroke-width="6"/>
+      <circle cx="48" cy="38" r="8" fill="#fcd34d" stroke="#2c2242" stroke-width="6"/>
+      <!-- Cart Body -->
+      <path d="M 6 12 L 58 12 L 52 34 L 12 34 Z" fill="#2c2242" stroke="#2c2242" stroke-width="6" stroke-linejoin="round"/>
+      <path d="M 10 15 L 54 15 L 49 31 L 15 31 Z" fill="#d9383a"/>
+      <line x1="10" y1="12" x2="54" y2="12" stroke="#f8fafc" stroke-width="4" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>
