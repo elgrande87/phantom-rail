@@ -36,7 +36,7 @@ def fetch_audnexus_metadata(query):
         clean_q = re.sub(r'\s+', ' ', clean_q).strip()
         encoded = urllib.parse.quote(clean_q)
         
-        search_url = f"https://api.audnexus.com/books?title={encoded}&limit=1"
+        search_url = f"https://api.audnex.us/books?title={encoded}&limit=1"
         req = urllib.request.Request(search_url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode('utf-8'))
@@ -54,7 +54,7 @@ def fetch_audnexus_metadata(query):
                 chapters = []
                 if asin:
                     try:
-                        ch_url = f"https://api.audnexus.com/books/{asin}/chapters"
+                        ch_url = f"https://api.audnex.us/books/{asin}/chapters"
                         ch_req = urllib.request.Request(ch_url, headers={'User-Agent': 'Mozilla/5.0'})
                         with urllib.request.urlopen(ch_req, timeout=5) as ch_resp:
                             ch_data = json.loads(ch_resp.read().decode('utf-8'))
