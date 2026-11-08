@@ -29,51 +29,88 @@ except Exception as e:
 def index():
     return render_template('index.html')
 
-def fetch_audnexus_metadata(query):
-    try:
-        clean_q = re.sub(r'[\(\[\{].*?[\)\]\}]', '', query)
-        clean_q = re.sub(r'(?:Kapitel|Teil|Part|Folge|Track|Episode)\s*\d+.*$', '', clean_q, flags=re.I)
-        clean_q = re.sub(r'\s+', ' ', clean_q).strip()
-        encoded = urllib.parse.quote(clean_q)
-        
-        search_url = f"https://api.audnex.us/books?title={encoded}&limit=1"
-        req = urllib.request.Request(search_url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
-            if data and len(data) > 0:
-                book = data[0]
-                asin = book.get('asin')
-                authors = ", ".join([a.get('name') for a in book.get('authors', [])]) if book.get('authors') else ""
-                series_list = [f"{s.get('name')} #{s.get('position', '')}".strip() for s in book.get('series', [])]
-                series = ", ".join(series_list) if series_list else ""
-                release_date = book.get('releaseDate', '')
-                year = release_date.split('-')[0] if release_date else ""
-                image = book.get('image', '')
-                description = book.get('summary', '') or book.get('description', '')
-                
-                chapters = []
-                if asin:
+
+def clean_html(raw_html):
+    if not raw_html:
+        return ''
+    return html.unescape(re.sub(r'<[^>]+>', '', str(raw_html))).strip()
+
+
+
+def fetch_audible_metadata(query):
+    """Load metadata from Audible Germany."""
+    if not query or not str(query).strip():
+        return None
+    raw = str(query).strip()
+    cleaned = re.sub(r'[\(\[\{].*?[\)\]\}]', ' ', raw)
+    cleaned = re.sub(
+        r'\b(?:Kapitel|Teil|Part|Folge|Track|Episode)\s*\d+.*$',
+        '', cleaned, flags=re.I)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    for term in dict.fromkeys(x for x in (raw, cleaned) if x):
+        url = 'https://api.audible.de/1.0/catalog/products?' + urllib.parse.urlencode({
+            'keywords': term,
+            'num_results': '5',
+            'products_sort_by': 'Relevance',
+            'response_groups':
+                'contributors,product_desc,product_attrs,product_extended_attrs,media,series'
+        })
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=8) as response:
+                products = json.loads(response.read().decode('utf-8')).get('products') or []
+            if not products:
+                continue
+            product = products[0]
+            images = product.get('product_images') or {}
+            cover = next((
+                images.get(key) for key in ('1024', '800', '500')
+                if isinstance(images, dict) and images.get(key)
+            ), '')
+            cover = cover or product.get('image') or product.get('cover_url') or ''
+            def names(key):
+                return ', '.join(
+                    item['name'] for item in (product.get(key) or [])
+                    if isinstance(item, dict) and item.get('name'))
+            series = next((
+                item.get('title') or item.get('name')
+                for item in (product.get('series') or [])
+                if isinstance(item, dict) and (item.get('title') or item.get('name'))
+            ), '')
+            release = str(product.get('release_date') or product.get('publication_name') or '')
+            year = re.search(r'\b(?:19|20)\d{2}\b', release)
+            chapters, asin = [], product.get('asin')
+            if asin:
+                for endpoint in (
+                    f'https://api.audnex.us/books/{asin}/chapters',
+                    f'https://api.audnex.us/books/{asin}/chapters?region=de'
+                ):
                     try:
-                        ch_url = f"https://api.audnex.us/books/{asin}/chapters"
-                        ch_req = urllib.request.Request(ch_url, headers={'User-Agent': 'Mozilla/5.0'})
-                        with urllib.request.urlopen(ch_req, timeout=5) as ch_resp:
-                            ch_data = json.loads(ch_resp.read().decode('utf-8'))
-                            if ch_data and 'chapters' in ch_data:
-                                chapters = [c.get('title') for c in ch_data['chapters'] if c.get('title')]
-                    except Exception:
-                        pass
-                
-                return {
-                    'title': book.get('title'),
-                    'author': authors,
-                    'series': series,
-                    'year': year,
-                    'cover_url': image,
-                    'description': description,
-                    'audible_chapters': chapters
-                }
-    except Exception as e:
-        print(f"Audnexus-Suche fehlgeschlagen: {e}")
+                        req = urllib.request.Request(endpoint, headers=headers)
+                        with urllib.request.urlopen(req, timeout=5) as response:
+                            rows = json.loads(response.read().decode('utf-8')).get('chapters') or []
+                        chapters = [
+                            item['title'] for item in rows
+                            if isinstance(item, dict) and item.get('title')]
+                        if chapters:
+                            break
+                    except Exception as error:
+                        print(f'Audnex chapters lookup failed: {error}')
+            description = product.get('publisher_summary') or product.get('merchandising_summary') or ''
+            return {
+                'title': product.get('title') or raw,
+                'author': names('authors'),
+                'narrator': names('narrators'),
+                'series': series,
+                'year': year.group(0) if year else '',
+                'cover_url': cover,
+                'description': clean_html(description),
+                'asin': asin,
+                'audible_chapters': chapters
+            }
+        except Exception as error:
+            print(f'Audible DE lookup failed for {term!r}: {error}')
     return None
 
 @app.route('/info', methods=['POST'])
@@ -114,7 +151,7 @@ def info():
             if not cover and entries and entries[0].get('thumbnails'):
                 cover = entries[0]['thumbnails'][-1].get('url', '')
                 
-            meta = fetch_audnexus_metadata(title)
+            meta = fetch_audible_metadata(title)
             
             return jsonify({
                 'is_playlist': True,
@@ -123,6 +160,9 @@ def info():
                 'series': meta.get('series') if meta and meta.get('series') else '',
                 'year': meta.get('year') if meta and meta.get('year') else '',
                 'cover_url': meta.get('cover_url') if meta and meta.get('cover_url') else cover,
+                'thumbnail': meta.get('cover_url') if meta and meta.get('cover_url') else cover,
+                'narrator': meta.get('narrator') if meta and meta.get('narrator') else '',
+                'uploader': uploader,
                 'description': meta.get('description') if meta and meta.get('description') else '',
                 'chapters': chapters,
                 'audible_chapters': meta.get('audible_chapters', []) if meta else []
@@ -150,7 +190,7 @@ def info():
                 })
                 
             cover = data.get('thumbnails', [{}])[-1].get('url', '') if data.get('thumbnails') else ''
-            meta = fetch_audnexus_metadata(title)
+            meta = fetch_audible_metadata(title)
             
             return jsonify({
                 'is_playlist': False,
@@ -159,6 +199,9 @@ def info():
                 'series': meta.get('series') if meta and meta.get('series') else '',
                 'year': meta.get('year') if meta and meta.get('year') else '',
                 'cover_url': meta.get('cover_url') if meta and meta.get('cover_url') else cover,
+                'thumbnail': meta.get('cover_url') if meta and meta.get('cover_url') else cover,
+                'narrator': meta.get('narrator') if meta and meta.get('narrator') else '',
+                'uploader': uploader,
                 'description': meta.get('description') if meta and meta.get('description') else '',
                 'chapters': chapters,
                 'audible_chapters': meta.get('audible_chapters', []) if meta else []
@@ -168,6 +211,26 @@ def info():
         return jsonify({'error': f"yt-dlp Fehler: {e.stderr}"}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/lookup-meta', methods=['POST'])
+def lookup_meta():
+    data = request.get_json(silent=True) or {}
+    meta = fetch_audible_metadata(data.get('query', ''))
+    if not meta:
+        return jsonify({'found': False})
+    return jsonify({
+        'found': True,
+        'title': meta.get('title', ''),
+        'author': meta.get('author', ''),
+        'narrator': meta.get('narrator', ''),
+        'series': meta.get('series', ''),
+        'part': '',
+        'year': meta.get('year', ''),
+        'description': meta.get('description', ''),
+        'cover': meta.get('cover_url', ''),
+        'chapters': meta.get('audible_chapters', [])
+    })
+
 
 @app.route('/process', methods=['POST'])
 def process():
