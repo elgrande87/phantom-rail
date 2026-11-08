@@ -77,6 +77,7 @@ def fetch_audnexus_metadata(query):
     return None
 
 @app.route('/info', methods=['POST'])
+@app.route('/inspect', methods=['POST'])
 def info():
     url = request.json.get('url')
     if not url:
@@ -192,7 +193,7 @@ def process():
                 '-x',
                 '--audio-format', 'm4a',
                 '--audio-quality', '0',
-                '-o', f'{tmpdir}/%(playlist_index&{:03d}_|)s%(autonumber&{:03d}_|)s%(id)s.%(ext)s',
+                '-o', f'{tmpdir}/%(playlist_index&{{:03d}}_|)s%(autonumber&{{:03d}}_|)s%(id)s.%(ext)s',
                 '--newline',
                 url
             ]
