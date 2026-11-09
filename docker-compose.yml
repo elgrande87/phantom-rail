@@ -9,11 +9,11 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - /mnt/dietpi_userdata/audiobooks:/downloads
+      - /mnt/ssd/audiobooks:/downloads
     deploy:
       resources:
         limits:
           memory: 700M
     environment:
       - PYTHONUNBUFFERED=1
-      - GUNICORN_CMD_ARGS=--workers=1 --threads=4 --timeout=600
+      - GUNICORN_CMD_ARGS=--workers=1 --threads=4 --timeout=3600

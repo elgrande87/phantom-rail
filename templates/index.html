@@ -6,7 +6,7 @@
 <title>phantom-rail | Audiobook & M4B Creator</title>
 <link rel="icon" type="image/svg+xml" href="/static/pasted.svg">
 <style>
-:root{--bg-color:#0f172a;--card-bg:#1e293b;--primary:#38bdf8;--primary-hover:#0284c7;--text-main:#f8fafc;--text-muted:#94a3b8;--border:#334155;--success:#22c55e;--danger:#ef4444}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg-color);color:var(--text-main);margin:0;padding:16px;display:flex;justify-content:center}.container{width:100%;max-width:800px;display:flex;flex-direction:column;gap:16px}.card{background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px;box-shadow:0 4px 6px -1px rgba(0,0,0,.3)}.header-title{display:flex;align-items:center;gap:14px;margin-bottom:8px}.brand-logo{width:52px;height:52px;object-fit:contain;border-radius:8px;flex-shrink:0}.brand-text{display:flex;flex-direction:column;gap:2px}.brand-name{font-size:1.8rem;font-weight:800;letter-spacing:-.02em;color:var(--primary)}.brand-subtitle{font-size:.95rem;color:var(--text-muted);font-weight:500}h1,h2,h3{margin-top:0;color:var(--primary)}.input-group{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}label{font-size:.85rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}input[type="text"],input[type="url"],textarea{width:100%;padding:12px;border-radius:8px;border:1px solid var(--border);background:#0f172a;color:var(--text-main);font-size:1rem;box-sizing:border-box}input:focus,textarea:focus{outline:none;border-color:var(--primary)}button{background:var(--primary);color:#0f172a;border:none;border-radius:8px;padding:12px 18px;font-size:1rem;font-weight:bold;cursor:pointer;width:100%}button:hover{background:var(--primary-hover)}button:disabled{background:var(--border);color:var(--text-muted);cursor:not-allowed}.cover-preview-wrapper{display:flex;justify-content:center;margin:12px 0}.cover-preview{max-width:220px;max-height:220px;width:auto;height:auto;border-radius:8px;border:1px solid var(--border);object-fit:contain;background:#000}.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:600px){.grid-2{grid-template-columns:1fr}}.chapter-item{display:flex;align-items:center;gap:8px;margin-bottom:8px;background:#0f172a;padding:8px;border-radius:6px;border:1px solid var(--border)}.chapter-num{min-width:32px;text-align:center;font-weight:bold;color:var(--text-muted);font-size:.85rem}.chapter-item input{flex-grow:1;padding:8px;font-size:.95rem;background:#1e293b;border:1px solid var(--border)}.batch-toolbar{background:#0b1329;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;display:flex;flex-direction:column;gap:10px}.batch-row{display:flex;gap:8px;flex-wrap:wrap}.btn-small{padding:8px 12px;font-size:.85rem;width:auto;background:#334155;color:var(--text-main)}.btn-small:hover{background:#475569}.progress-box{display:flex;flex-direction:column;gap:8px;margin-top:12px}.progress-bar-container{width:100%;height:12px;background:#0f172a;border-radius:6px;overflow:hidden;border:1px solid var(--border)}.progress-bar{height:100%;width:0%;background:var(--primary);transition:width .3s ease}.progress-label{display:flex;justify-content:space-between;font-size:.85rem;color:var(--text-muted)}#logOutput{background:#000;color:#38bdf8;font-family:monospace;font-size:.85rem;padding:12px;border-radius:8px;height:160px;overflow-y:auto;white-space:pre-wrap;border:1px solid var(--border);margin-top:10px}
+:root{--bg-color:#0f172a;--card-bg:#1e293b;--primary:#38bdf8;--primary-hover:#0284c7;--text-main:#f8fafc;--text-muted:#94a3b8;--border:#334155;--success:#22c55e;--danger:#ef4444}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg-color);color:var(--text-main);margin:0;padding:16px;display:flex;justify-content:center}.container{width:100%;max-width:800px;display:flex;flex-direction:column;gap:16px}.card{background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px;box-shadow:0 4px 6px -1px rgba(0,0,0,.3)}.header-title{display:flex;align-items:center;gap:14px;margin-bottom:8px}.brand-logo{width:52px;height:52px;object-fit:contain;border-radius:8px;flex-shrink:0}.brand-text{display:flex;flex-direction:column;gap:2px}.brand-name{font-size:1.8rem;font-weight:800;letter-spacing:-.02em;color:var(--primary)}.brand-subtitle{font-size:.95rem;color:var(--text-muted);font-weight:500}h1,h2,h3{margin-top:0;color:var(--primary)}.input-group{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}label{font-size:.85rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}input[type="text"],input[type="url"],textarea{width:100%;padding:12px;border-radius:8px;border:1px solid var(--border);background:#0f172a;color:var(--text-main);font-size:1rem;box-sizing:border-box}input:focus,textarea:focus{outline:none;border-color:var(--primary)}button{background:var(--primary);color:#0f172a;border:none;border-radius:8px;padding:12px 18px;font-size:1rem;font-weight:bold;cursor:pointer;width:100%}button:hover{background:var(--primary-hover)}button:disabled{background:var(--border);color:var(--text-muted);cursor:not-allowed}.cover-preview-wrapper{display:flex;justify-content:center;margin:12px 0}.cover-preview{max-width:220px;max-height:220px;width:auto;height:auto;border-radius:8px;border:1px solid var(--border);object-fit:contain;background:#000}.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:600px){.grid-2{grid-template-columns:1fr}}.chapter-item{display:flex;align-items:center;gap:8px;margin-bottom:8px;background:#0f172a;padding:8px;border-radius:6px;border:1px solid var(--border)}.chapter-num{min-width:32px;text-align:center;font-weight:bold;color:var(--text-muted);font-size:.85rem}.chapter-item input{flex-grow:1;padding:8px;font-size:.95rem;background:#1e293b;border:1px solid var(--border)}.batch-toolbar{background:#0b1329;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;display:flex;flex-direction:column;gap:10px}.batch-row{display:flex;gap:8px;flex-wrap:wrap}.btn-small{padding:8px 12px;font-size:.85rem;width:auto;background:#334155;color:var(--text-main)}.btn-small:hover{background:#475569}.progress-box{display:flex;flex-direction:column;gap:8px;margin-top:12px}.progress-bar-container{width:100%;height:12px;background:#0f172a;border-radius:6px;overflow:hidden;border:1px solid var(--border)}.progress-bar{height:100%;width:0%;background:var(--primary);transition:width .3s ease}.progress-label{display:flex;justify-content:space-between;font-size:.85rem;color:var(--text-muted)}#logOutput{background:#000;color:#38bdf8;font-family:monospace;font-size:.85rem;padding:12px;border-radius:8px;height:160px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;border:1px solid var(--border);margin-top:10px}.log-line{line-height:1.45;margin-bottom:2px}.log-line.error{color:var(--danger);font-weight:bold}.log-line.done{color:var(--success);font-weight:bold}
 </style>
 </head>
 <body>
@@ -30,7 +30,7 @@
 <div id="chapterList"></div><button id="downloadBtn" onclick="startDownload()" style="margin-top:16px">M4B Hörbuch herunterladen & erstellen</button>
 </div>
 <div class="card" id="progressCard" style="display:none"><h2>Fortschritt</h2>
-<div class="progress-box"><div class="progress-label"><span>1. Download-Fortschritt</span><span id="dlPercent">0%</span></div><div class="progress-bar-container"><div id="dlBar" class="progress-bar"></div></div></div>
+<div class="progress-box"><div class="progress-label"><span>1. Download-Fortschritt (Gesamtes Buch)</span><span id="dlPercent">0%</span></div><div class="progress-bar-container"><div id="dlBar" class="progress-bar"></div></div></div>
 <div class="progress-box" style="margin-top:12px"><div class="progress-label"><span>2. M4B Zusammenfügen & Kapitel schreiben</span><span id="procPercent">0%</span></div><div class="progress-bar-container"><div id="procBar" class="progress-bar" style="background:var(--success)"></div></div></div><div id="logOutput">Warte auf Server-Rückmeldung...</div></div>
 </div>
 <script>
@@ -119,10 +119,29 @@ function addLeadingNumbers() {
 function resetChaptersToCleaned() {
     document.querySelectorAll('.chapter-input').forEach((input, i) => {if (initialCleanedChapters[i] !== undefined) input.value = initialCleanedChapters[i];});
 }
+function appendLogLine(text, replaceLast = false, cssClass = '') {
+    const log = document.getElementById('logOutput');
+    if (replaceLast && log.lastElementChild && log.lastElementChild.dataset.replaceable === 'true') {
+        log.lastElementChild.textContent = text;
+        if (cssClass) log.lastElementChild.className = 'log-line ' + cssClass;
+    } else {
+        const line = document.createElement('div');
+        line.className = 'log-line' + (cssClass ? ' ' + cssClass : '');
+        line.dataset.replaceable = replaceLast ? 'true' : 'false';
+        line.textContent = text;
+        log.appendChild(line);
+    }
+    log.scrollTop = log.scrollHeight;
+}
 async function startDownload() {
+    if (document.getElementById('destinationFolder') && !window.foldersReady) {
+        alert('Bitte erst die Speicherordner laden (Aktualisieren).');
+        return;
+    }
     const url = document.getElementById('urlInput').value.trim();
     if (!inspectedUrl || url !== inspectedUrl) {alert('Bitte diese URL zuerst erneut prüfen.'); return;}
     const names = Array.from(document.querySelectorAll('.chapter-input'), input => input.value.trim());
+    const destEl = document.getElementById('destinationFolder');
     const payload = {
         url,
         title:document.getElementById('titleInput').value.trim(),
@@ -133,6 +152,7 @@ async function startDownload() {
         cover_url:document.getElementById('coverUrlInput').value.trim(),
         chapters:globalChapters.map((ch, i) => ({...ch, title:names[i]})),
         chapter_names:names,
+        destination_folder:destEl ? destEl.value : '',
         is_playlist:globalIsPlaylist
     };
     const button = document.getElementById('downloadBtn');
@@ -141,10 +161,15 @@ async function startDownload() {
     document.getElementById('progressCard').scrollIntoView({behavior:'smooth'});
     for (const id of ['dl','proc']) setProgress(id, 0);
     const log = document.getElementById('logOutput');
-    log.textContent = 'Starte Download & M4B Generierung...\n';
+    log.replaceChildren();
+    appendLogLine('Starte Download & M4B Generierung...');
     try {
         const response = await fetch('/process', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-        if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok || !response.body) {
+            let errText = `HTTP ${response.status}`;
+            try { const errJson = await response.json(); if (errJson.error) errText = errJson.error; } catch (_) {}
+            throw new Error(errText);
+        }
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
@@ -166,9 +191,14 @@ async function startDownload() {
                 for (const event of events) consume(event);
                 if (done) { if (buffer.trim()) consume(buffer); break; }
             }
-            if (!finished) throw new Error('Verbindung beendet, ohne bestätigte Fertigmeldung. Bitte Server-Logs prüfen.');
+            if (!finished) throw new Error('Verbindung zum Server wurde unterbrochen (z.B. Browser im Hintergrund oder Netzwerkwechsel). Die Erstellung läuft evtl. auf dem Server weiter.');
         } finally { reader.releaseLock(); }
-    } catch (err) {log.textContent += '\nFehler: ' + err.message + '\n';}
+    } catch (err) {
+        const msg = err.message === 'Load failed' || err.message === 'Failed to fetch'
+            ? 'Verbindung unterbrochen (Load failed – z.B. Display-Sperre am Smartphone während des Downloads). Bitte Seite offen lassen oder im Zielordner prüfen, ob das Hörbuch bereits fertiggestellt wird.'
+            : err.message;
+        appendLogLine('Fehler: ' + msg, false, 'error');
+    }
     finally {button.disabled = false;}
 }
 function setProgress(id, value) {
@@ -177,16 +207,30 @@ function setProgress(id, value) {
     document.getElementById(id + 'Percent').innerText = pct + '%';
 }
 function handleServerMessage(msg) {
-    const log = document.getElementById('logOutput');
-    if (typeof msg === 'string') {log.textContent += msg + '\n'; return;}
+    if (typeof msg === 'string') {appendLogLine(msg); return;}
     const text = msg.msg || msg.message;
-    if (text) {log.textContent += text + '\n'; log.scrollTop = log.scrollHeight;}
-    if (msg.status === 'downloading') setProgress('dl', msg.progress);
-    else if (msg.status === 'processing') setProgress('proc', (Number(msg.progress) - 55) * 100 / 45);
-    else if (msg.type === 'dl_progress') setProgress('dl', msg.percent);
-    else if (msg.type === 'proc_progress') setProgress('proc', msg.percent);
-    if (msg.status === 'done' || msg.type === 'finished') {setProgress('dl',100); setProgress('proc',100);}
+    const isError = msg.status === 'error' || msg.type === 'error';
+    const isDone = msg.status === 'done' || msg.type === 'finished';
+    if (text && !isError) {
+        appendLogLine(text, Boolean(msg.replace_line), isDone ? 'done' : '');
+    }
+    if (msg.dl_progress !== undefined) {
+        setProgress('dl', msg.dl_progress);
+    } else if (msg.status === 'downloading') {
+        setProgress('dl', msg.progress);
+    } else if (msg.type === 'dl_progress') {
+        setProgress('dl', msg.percent);
+    }
+    if (msg.proc_progress !== undefined) {
+        setProgress('proc', msg.proc_progress);
+    } else if (msg.status === 'processing') {
+        setProgress('proc', (Number(msg.progress) - 55) * 100 / 45);
+    } else if (msg.type === 'proc_progress') {
+        setProgress('proc', msg.percent);
+    }
+    if (isDone) {setProgress('dl',100); setProgress('proc',100);}
 }
 </script>
+<script src="/static/folders.js"></script>
 </body>
 </html>
