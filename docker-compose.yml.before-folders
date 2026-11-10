@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  phantom-rail:
+    build: .
+    container_name: phantom-rail
+    image: phantom-rail:latest
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - /mnt/dietpi_userdata/audiobooks:/downloads
+    deploy:
+      resources:
+        limits:
+          memory: 700M
+    environment:
+      - PYTHONUNBUFFERED=1
+      - GUNICORN_CMD_ARGS=--workers=1 --threads=4 --timeout=600
