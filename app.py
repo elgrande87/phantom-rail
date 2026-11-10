@@ -682,17 +682,25 @@ def _stream_current_job(job_id):
             if CURRENT_JOB.get("id") != job_id:
                 break
             events = CURRENT_JOB["events"]
-            while idx < len(events):
-                ev = events[idx]
-                idx += 1
-                yield f"data: {json.dumps(ev)}\n\n"
-                if ev.get("status") in ("done", "error"):
-                    return
-            if not CURRENT_JOB.get("active"):
+            batch = events[idx:]
+            idx = len(events)
+            is_active = CURRENT_JOB.get("active", False)
+            if not batch and is_active:
+                JOB_COND.wait(timeout=2.0)
+                events = CURRENT_JOB["events"]
+                batch = events[idx:]
+                idx = len(events)
+                is_active = CURRENT_JOB.get("active", False)
+
+        for ev in batch:
+            yield f"data: {json.dumps(ev)}\n\n"
+            if ev.get("status") in ("done", "error"):
                 return
-            JOB_COND.wait(timeout=5.0)
-            if idx >= len(CURRENT_JOB["events"]) and CURRENT_JOB.get("active"):
-                yield ": keepalive\n\n"
+
+        if not batch:
+            if not is_active:
+                return
+            yield ": keepalive\n\n"
 
 
 @app.route('/job-status', methods=['GET'])
@@ -701,6 +709,9 @@ def job_status():
         return jsonify({
             "id": CURRENT_JOB["id"],
             "active": CURRENT_JOB["active"],
+            "running": CURRENT_JOB["active"],
+            "event_count": len(CURRENT_JOB["events"]),
+            "done": CURRENT_JOB["status"] in ("done", "error"),
             "status": CURRENT_JOB["status"],
             "title": CURRENT_JOB["title"],
             "dl_progress": CURRENT_JOB["dl_progress"],

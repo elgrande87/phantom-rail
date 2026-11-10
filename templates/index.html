@@ -266,7 +266,9 @@ async function attachToRunningJob(isInitialPageLoad = false) {
         const stRes = await fetch('/job-status', {cache: 'no-store'});
         if (!stRes.ok) return;
         const st = await stRes.json();
-        if (!st.running && (!isInitialPageLoad || st.status === 'idle' || !st.event_count)) return;
+        const isRunning = Boolean(st.running || st.active);
+        const hasEvents = (typeof st.event_count === 'number') ? st.event_count > 0 : true;
+        if (!isRunning && (!isInitialPageLoad || st.status === 'idle' || !hasEvents)) return;
 
         const button = document.getElementById('downloadBtn');
         if (button) button.disabled = Boolean(st.running);
@@ -314,7 +316,7 @@ function scheduleReconnect() {
         try {
             const stRes = await fetch('/job-status', {cache: 'no-store'});
             const st = await stRes.json();
-            if (st.running) {
+            if (st.running || st.active) {
                 await attachToRunningJob(false);
             } else {
                 const button = document.getElementById('downloadBtn');
