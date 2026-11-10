@@ -245,6 +245,7 @@ def process():
     url = req_data.get('url')
     title = req_data.get('title', 'Hörbuch').strip()
     author = req_data.get('author', 'Unbekannt').strip()
+    narrator = req_data.get('narrator', '').strip()
     series = req_data.get('series', '').strip()
     year = req_data.get('year', '').strip()
     description = req_data.get('description', '').strip()
@@ -390,6 +391,8 @@ def process():
                 f.write(f"artist={esc_ffmeta(author)}\n")
                 f.write(f"album_artist={esc_ffmeta(author)}\n")
                 f.write(f"album={esc_ffmeta(title)}\n")
+                if narrator:
+                    f.write(f"composer={esc_ffmeta(narrator)}\n")
                 if series:
                     f.write(f"series={esc_ffmeta(series)}\n")
                 if year:
