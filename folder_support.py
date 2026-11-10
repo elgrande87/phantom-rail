@@ -25,14 +25,18 @@ def register_folders(app, root):
                 if not isinstance(name, str):
                     raise ValueError('Ungültiger Ordnername')
                 name = name.strip()
-                if not name or name in ('.', '..') or name.startswith('.') or any(c in name for c in '/\\\x00'):
-                    raise ValueError('Bitte einen einfachen Ordnernamen ohne Schrägstriche eingeben')
-                parent = resolve(data.get('parent', ''))
+                if not name or name.startswith('.') or '\\' in name or '\x00' in name:
+                    raise ValueError('Ungültiger Ordnername')
+                parent_value = data.get('parent', '')
+                parent = resolve(parent_value)
                 if not os.path.isdir(parent):
                     raise ValueError('Übergeordneter Ordner existiert nicht')
-                relative = '/'.join(filter(None, [data.get('parent', ''), name]))
+                relative_name = name.strip('/')
+                if not relative_name or any(part in ('', '.', '..') or part.startswith('.') for part in relative_name.split('/')):
+                    raise ValueError('Bitte einen sichtbaren relativen Ordnerpfad ohne Punktordner eingeben')
+                relative = '/'.join(filter(None, [parent_value, relative_name]))
                 destination = resolve(relative)
-                os.mkdir(destination)
+                os.makedirs(destination, exist_ok=False)
                 return jsonify({'folder': relative}), 201
             result = []
             for current, dirs, _ in os.walk(root, followlinks=False):
