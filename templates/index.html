@@ -30,7 +30,7 @@
 <div id="chapterList"></div><button id="downloadBtn" onclick="startDownload()" style="margin-top:16px">M4B Hörbuch herunterladen & erstellen</button>
 </div>
 <div class="card" id="progressCard" style="display:none"><h2>Fortschritt</h2>
-<div class="progress-box"><div class="progress-label"><span>1. Download-Fortschritt (Gesamtes Buch)</span><span id="dlPercent">0%</span></div><div class="progress-bar-container"><div id="dlBar" class="progress-bar"></div></div></div>
+<div class="progress-box"><div class="progress-label"><span id="dlStatusLabel">1. Download-Fortschritt (Gesamtes Buch)</span><span id="dlPercent">0%</span></div><div class="progress-bar-container"><div id="dlBar" class="progress-bar"></div></div></div>
 <div class="progress-box" style="margin-top:12px"><div class="progress-label"><span>2. M4B Zusammenfügen & Kapitel schreiben</span><span id="procPercent">0%</span></div><div class="progress-bar-container"><div id="procBar" class="progress-bar" style="background:var(--success)"></div></div></div><div id="logOutput">Warte auf Server-Rückmeldung...</div></div>
 </div>
 <script>
@@ -44,7 +44,7 @@ function updateCoverPreview() {
 function cleanChapterName(rawName, bookTitle, bookSeries) {
     if (!rawName) return 'Kapitel';
     let s = String(rawName);
-    s = s.replace(/[\(\[\{].*?(hörspiel|audiobook|ungekürzt|komplett|full).*?[\)\]\}]/gi, '');
+    s = s.replace(/[\(\[\{][^\(\[\{\)\]\}]*?(hörspiel|audiobook|ungekürzt|komplett|full)[^\(\[\{\)\]\}]*[\)\]\}]/gi, '');
     s = s.replace(/\s*\|\s*.*$/g, '');
     for (const name of [bookTitle, bookSeries]) {
         if (name && name.length > 3) {
@@ -126,11 +126,11 @@ function applyBatchFindReplace() {
     if (find) document.querySelectorAll('.chapter-input').forEach(input => {input.value = input.value.split(find).join(replacement).trim();});
 }
 function removeLeadingNumbers() {
-    document.querySelectorAll('.chapter-input').forEach(input => {input.value = input.value.replace(/^(kapitel|track|folge|teil|part)?\s*\d+[\s.\-_:–—]*/i, '').trim();});
+    document.querySelectorAll('.chapter-input').forEach(input => {input.value = input.value.replace(/^((?:kapitel|track|folge|teil|part|chapter|ch)\s*\d+[\s.\-_:–—]*|\d{1,3}\s*[.\-_:–—]+\s*)/i, '').trim();});
 }
 function addLeadingNumbers() {
     document.querySelectorAll('.chapter-input').forEach((input, i) => {
-        const clean = input.value.replace(/^(kapitel|track|folge|teil|part)?\s*\d+[\s.\-_:–—]*/i, '').trim();
+        const clean = input.value.replace(/^((?:kapitel|track|folge|teil|part|chapter|ch)\s*\d+[\s.\-_:–—]*|\d{1,3}\s*[.\-_:–—]+\s*)/i, '').trim();
         input.value = `Kapitel ${i + 1}: ${clean}`;
     });
 }
@@ -231,6 +231,7 @@ function handleServerMessage(msg) {
     const isError = msg.status === 'error' || msg.type === 'error';
     const isDone = msg.status === 'done' || msg.type === 'finished';
     if (text && !isError) {
+        if (msg.status === 'downloading' && /Kapitel \d+\s*\//.test(text)) document.getElementById('dlStatusLabel').textContent = text.split('— Gesamt:')[0].trim();
         appendLogLine(text, Boolean(msg.replace_line), isDone ? 'done' : '');
     }
     if (msg.dl_progress !== undefined) {
