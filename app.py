@@ -267,6 +267,8 @@ def process():
 
     def generate():
         tmpdir = tempfile.mkdtemp(prefix="work_", dir=TMP_BASE_DIR)
+        proc = None
+        ff_proc = None
         try:
             total_items = max(1, len(chapters)) if is_playlist else 1
             current_item = 1
@@ -281,7 +283,8 @@ def process():
                 '-x',
                 '--audio-format', 'm4a',
                 '--audio-quality', '0',
-                '-o', f'{tmpdir}/%(playlist_index&{{:03d}}_|)s%(autonumber&{{:03d}}_|)s%(id)s.%(ext)s',
+                '--ignore-errors',
+                '-o', f'{tmpdir}/%(playlist_index&{{:04d}}_|)s%(autonumber&{{:04d}}_|)s%(id)s.%(ext)s',
                 '--newline',
                 url
             ]
@@ -342,10 +345,16 @@ def process():
                     overall_pct = round((current_item / total_items) * 100, 1)
                     msg_text = f"Konvertiere Kapitel {current_item}/{total_items}: {ch_title}..." if total_items > 1 else "Konvertiere Audio nach M4A..."
                     yield f"data: {json.dumps({'status': 'downloading', 'dl_progress': overall_pct, 'proc_progress': 0, 'progress': int(overall_pct * 0.5), 'msg': msg_text, 'replace_line': True})}\n\n"
+                    continue
+
+                log_line = line.strip()
+                if log_line:
+                    yield f"data: {json.dumps({'status': 'downloading', 'msg': f'[yt-dlp] {log_line}', 'replace_line': False})}\n\n"
 
             proc.wait()
             
-            if proc.returncode != 0:
+            downloaded = glob.glob(f"{tmpdir}/*.m4a")
+            if proc.returncode != 0 and not downloaded:
                 yield f"data: {json.dumps({'status': 'error', 'msg': 'Download fehlgeschlagen'})}\n\n"
                 return
 
@@ -366,7 +375,11 @@ def process():
             yield f"data: {json.dumps({'status': 'processing', 'dl_progress': 100, 'proc_progress': 25, 'progress': 65, 'msg': 'Analysiere Audiodateien & berechne Kapitelmarken...', 'replace_line': False})}\n\n"
 
             # 3. Audio verarbeiten
-            audio_files = sorted(glob.glob(f"{tmpdir}/*.m4a"))
+            def playlist_sort_key(path):
+                match = re.match(r'(\d+)_', os.path.basename(path))
+                return (0, int(match.group(1))) if match else (1, os.path.basename(path).casefold())
+
+            audio_files = sorted(glob.glob(f"{tmpdir}/*.m4a"), key=playlist_sort_key)
             if not audio_files:
                 yield f"data: {json.dumps({'status': 'error', 'msg': 'Keine Audiodateien gefunden'})}\n\n"
                 return
@@ -417,7 +430,9 @@ def process():
                             dur_sec = 0.0
                         dur_ms = int(dur_sec * 1000)
                         
-                        ch_name = get_chapter_title(idx)
+                        index_match = re.match(r'(\d+)_', os.path.basename(a_file))
+                        original_idx = int(index_match.group(1)) - 1 if index_match else idx
+                        ch_name = get_chapter_title(original_idx)
                         f.write("[CHAPTER]\nTIMEBASE=1/1000\n")
                         f.write(f"START={current_time_ms}\n")
                         f.write(f"END={current_time_ms + dur_ms}\n")
@@ -440,7 +455,7 @@ def process():
                     except ValueError:
                         total_duration_ms = 0
 
-                    if chapters and len(chapters) > 1 and isinstance(chapters[0], dict) and 'start_time' in chapters[0]:
+                    if chapters and isinstance(chapters[0], dict) and 'start_time' in chapters[0]:
                         for idx, c in enumerate(chapters):
                             s_ms = int(float(c.get('start_time', 0) or 0) * 1000)
                             e_ms = int(float(c.get('end_time', 0) or 0) * 1000)
@@ -449,6 +464,10 @@ def process():
                             f.write(f"START={s_ms}\n")
                             f.write(f"END={e_ms}\n")
                             f.write(f"title={esc_ffmeta(ch_name)}\n")
+                    elif chapters:
+                        f.write('[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\n')
+                        f.write(f'END={total_duration_ms}\n')
+                        f.write(f'title={esc_ffmeta(get_chapter_title(0))}\n')
 
             yield f"data: {json.dumps({'status': 'processing', 'dl_progress': 100, 'proc_progress': 50, 'progress': 80, 'msg': 'Füge M4B zusammen und schreibe Kapitelmarken...', 'replace_line': False})}\n\n"
 
@@ -480,7 +499,7 @@ def process():
                 '-map', '0:a'
             ])
             if cover_file:
-                ff_cmd.extend(['-map', '2:v', '-c:v', 'copy', '-disposition:v', 'attached_pic'])
+                ff_cmd.extend(['-map', '2:v', '-c:v', 'mjpeg', '-disposition:v', 'attached_pic'])
 
             ff_cmd.extend([
                 '-c:a', 'copy',
@@ -520,9 +539,12 @@ def process():
                 if len(ff_lines) > 50:
                     ff_lines.pop(0)
 
-                m_time = re.search(r'out_time_ms=(\d+)', line)
+                key_value = line.strip().split('=', 1)
+                if len(key_value) == 2 and key_value[0] in ('bitrate', 'total_size', 'out_time', 'speed'):
+                    yield f"data: {json.dumps({'status': 'processing', 'msg': f'[ffmpeg] {key_value[0]}={key_value[1]}', 'replace_line': False})}\n\n"
+                m_time = re.search(r'out_time_(?:us|ms)=(-?\d+)', line)
                 if m_time and total_duration_ms > 0:
-                    out_us = int(m_time.group(1))
+                    out_us = max(0, int(m_time.group(1)))
                     out_ms = out_us / 1000.0
                     ratio = min(1.0, max(0.0, out_ms / total_duration_ms))
                     proc_pct = 50 + int(ratio * 48)
@@ -534,15 +556,38 @@ def process():
 
             ff_proc.wait()
             if ff_proc.returncode != 0:
-                err_tail = ''.join(ff_lines)[-300:]
-                yield f"data: {json.dumps({'status': 'error', 'msg': f'FFmpeg Fehler: {err_tail}'})}\n\n"
-                return
+                # Concatenated AAC streams can differ in parameters; retry by normalizing audio.
+                retry_cmd = list(ff_cmd)
+                codec_index = retry_cmd.index('-c:a')
+                retry_cmd[codec_index + 1] = 'aac'
+                retry_cmd[codec_index + 2:codec_index + 2] = ['-b:a', '128k', '-ar', '44100', '-ac', '2']
+                yield f"data: {json.dumps({'status': 'processing', 'dl_progress': 100, 'proc_progress': 50, 'msg': 'Streamkopie fehlgeschlagen; starte AAC-Neucodierung mit 128 kbit/s ...', 'replace_line': False})}\n\n"
+                ff_proc = subprocess.Popen(retry_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+                for retry_line in iter(ff_proc.stdout.readline, ''):
+                    retry_text = retry_line.strip()
+                    if retry_text:
+                        yield f"data: {json.dumps({'status': 'processing', 'msg': f'[ffmpeg/AAC] {retry_text}', 'replace_line': False})}\n\n"
+                ff_proc.wait()
+                if ff_proc.returncode != 0:
+                    yield f"data: {json.dumps({'status': 'error', 'msg': 'FFmpeg Streamkopie und AAC-Neucodierung fehlgeschlagen'})}\n\n"
+                    return
 
             yield f"data: {json.dumps({'status': 'done', 'dl_progress': 100, 'proc_progress': 100, 'progress': 100, 'msg': f'Fertig! Gespeichert als {out_filename}', 'filename': out_filename, 'replace_line': False})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'status': 'error', 'msg': str(e)})}\n\n"
         finally:
+            for active_proc in (ff_proc, proc):
+                if active_proc is not None and active_proc.poll() is None:
+                    try:
+                        active_proc.terminate()
+                        active_proc.wait(timeout=3)
+                    except Exception:
+                        try:
+                            active_proc.kill()
+                            active_proc.wait(timeout=3)
+                        except Exception:
+                            pass
             shutil.rmtree(tmpdir, ignore_errors=True)
 
     return Response(
