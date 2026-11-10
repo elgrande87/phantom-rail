@@ -20,7 +20,7 @@
 <h2>Metadaten & Cover</h2>
 <div class="cover-preview-wrapper"><img id="coverPreview" class="cover-preview" src="" alt="Cover Preview"></div>
 <div class="input-group"><label for="coverUrlInput">Cover Bild URL</label><input type="text" id="coverUrlInput" oninput="updateCoverPreview()"></div>
-<div class="grid-2"><div class="input-group"><label for="titleInput">Titel / Hörbuchname</label><input type="text" id="titleInput"></div><div class="input-group"><label for="authorInput">Autor / Sprecher</label><input type="text" id="authorInput"></div></div>
+<div class="input-group"><label for="titleInput">Titel / Hörbuchname</label><input type="text" id="titleInput"><button type="button" id="lookupMetaBtn" class="btn-small" style="margin-top:8px">Audible Metadaten suchen</button><span id="metaLookupStatus" role="status"></span></div><div class="grid-2"><div class="input-group"><label for="authorInput">Autor</label><input type="text" id="authorInput"></div><div class="input-group"><label for="narratorInput">Sprecher / Narrator</label><input type="text" id="narratorInput"></div></div>
 <div class="grid-2"><div class="input-group"><label for="seriesInput">Serie / Reihe</label><input type="text" id="seriesInput"></div><div class="input-group"><label for="yearInput">Erscheinungsjahr</label><input type="text" id="yearInput"></div></div>
 <div class="input-group"><label for="descInput">Beschreibung</label><textarea id="descInput" rows="3"></textarea></div>
 <h3 id="chStatusLabel" style="margin-top:20px">Kapitelübersicht:</h3>
@@ -55,6 +55,24 @@ function cleanChapterName(rawName, bookTitle, bookSeries) {
     s = s.replace(/^[\s\-_:–—]+/, '').replace(/[\s\-_:–—]+$/, '').replace(/\s{2,}/g, ' ');
     return s.trim() || String(rawName).trim();
 }
+document.getElementById('lookupMetaBtn').addEventListener('click', async function() {
+    const status = document.getElementById('metaLookupStatus');
+    const query = document.getElementById('titleInput').value.trim();
+    if (!query) { status.textContent = 'Bitte zuerst einen Titel eingeben.'; return; }
+    this.disabled = true; status.textContent = 'Suche bei Audible …';
+    try {
+        const response = await fetch('/lookup-meta', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({query})});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Metadatenabfrage fehlgeschlagen');
+        if (!data.found) { status.textContent = 'Keine passenden Audible-Metadaten gefunden.'; return; }
+        for (const [id, key] of [['titleInput','title'],['authorInput','author'],['narratorInput','narrator'],['seriesInput','series'],['yearInput','year'],['descInput','description']]) {
+            if (data[key]) document.getElementById(id).value = data[key];
+        }
+        if (data.cover) { document.getElementById('coverUrlInput').value = data.cover; updateCoverPreview(); }
+        status.textContent = 'Audible-Metadaten übernommen.';
+    } catch (error) { status.textContent = error.message; }
+    finally { this.disabled = false; }
+});
 async function inspectUrl() {
     const url = document.getElementById('urlInput').value.trim();
     if (!url) { alert('Bitte gib eine URL ein.'); return; }
@@ -69,7 +87,7 @@ async function inspectUrl() {
         if (!res.ok) throw new Error(data.error || 'Fehler beim Laden');
         globalChapters = Array.isArray(data.chapters) ? data.chapters : [];
         globalIsPlaylist = Boolean(data.is_playlist);
-        for (const [id, key] of [['titleInput','title'],['authorInput','author'],['seriesInput','series'],['yearInput','year'],['descInput','description']]) {
+        for (const [id, key] of [['titleInput','title'],['authorInput','author'],['narratorInput','narrator'],['seriesInput','series'],['yearInput','year'],['descInput','description']]) {
             document.getElementById(id).value = data[key] || '';
         }
         document.getElementById('coverUrlInput').value = data.thumbnail || '';
@@ -146,6 +164,7 @@ async function startDownload() {
         url,
         title:document.getElementById('titleInput').value.trim(),
         author:document.getElementById('authorInput').value.trim(),
+        narrator:document.getElementById('narratorInput').value.trim(),
         series:document.getElementById('seriesInput').value.trim(),
         year:document.getElementById('yearInput').value.trim(),
         description:document.getElementById('descInput').value.trim(),
