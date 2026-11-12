@@ -87,18 +87,64 @@ def clean_html(raw_html):
         return ''
     return html.unescape(re.sub(r'<[^>]+>', '', str(raw_html))).strip()
 
+def clean_search_query(query):
+    """Strip leading track labels without discarding episode identifiers."""
+    text = html.unescape(str(query or '')).strip()
+    prefix = re.compile(
+        r'^(?:intro|outro|credits?|kapitel\s*\d+|track\s*\d+|'
+        r'teil\s*\d+|part\s*\d+)\s*:\s*', re.I)
+    while True:
+        cleaned = prefix.sub('', text, count=1).strip()
+        if cleaned == text:
+            break
+        text = cleaned
+    return re.sub(r'\s+', ' ', text).strip()
+
+def _audible_search_candidates(query):
+    """Try exact episode terms first; only then broaden to the base title."""
+    normalized = clean_search_query(query)
+    if not normalized:
+        return []
+    episode = re.search(r'\bFolge\s*\d+\b', normalized, flags=re.I)
+    title = re.sub(r'[\(\[\{][^)]*[\)\]\}]', ' ', normalized)
+    title = re.sub(r'\s+', ' ', title).strip(' -:;,')
+    terms = []
+    if episode and title:
+        terms.append(f"{title} {episode.group(0)}")
+    terms.append(normalized)
+    broad = re.sub(r'[\(\[\{][^)]*[\)\]\}]', ' ', normalized)
+    broad = re.sub(
+        r'\b(?:Kapitel|Teil|Part|Folge|Track|Episode)\s*\d+.*$',
+        '', broad, flags=re.I)
+    broad = re.sub(r'\s+', ' ', broad).strip(' -:;,')
+    if broad:
+        terms.append(broad)
+    return list(dict.fromkeys(term for term in terms if term))
+
+
+def _playlist_metadata_query(playlist_title, entries):
+    """Prefer a cleaned playlist track title carrying its exact Folge number."""
+    candidates = []
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        original = str(entry.get('title') or '').strip()
+        candidate = clean_search_query(original)
+        if candidate and candidate != original:
+            candidates.append(candidate)
+    for candidate in candidates:
+        if re.search(r'\bFolge\s*\d+\b', candidate, flags=re.I):
+            return candidate
+    return candidates[0] if candidates else clean_search_query(playlist_title)
+
 def fetch_audible_metadata(query):
     """Load metadata from Audible Germany."""
     if not query or not str(query).strip():
         return None
-    raw = str(query).strip()
-    cleaned = re.sub(r'[\(\[\{].*?[\)\]\}]', ' ', raw)
-    cleaned = re.sub(
-        r'\b(?:Kapitel|Teil|Part|Folge|Track|Episode)\s*\d+.*$',
-        '', cleaned, flags=re.I)
-    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    raw = clean_search_query(query)
+    terms = _audible_search_candidates(query)
     headers = {'User-Agent': 'Mozilla/5.0'}
-    for term in dict.fromkeys(x for x in (raw, cleaned) if x):
+    for term in terms:
         url = 'https://api.audible.de/1.0/catalog/products?' + urllib.parse.urlencode({
             'keywords': term,
             'num_results': '5',
@@ -201,7 +247,18 @@ def info():
             if not cover and entries and entries[0].get('thumbnails'):
                 cover = entries[0]['thumbnails'][-1].get('url', '')
                 
-            meta = fetch_audible_metadata(title)
+            # YouTube Music OLAK (album) playlists are titled with the series and
+            # episode number, while their first track is often the actual book title
+            # prefixed by "Intro:". Searching the playlist title can match a different
+            # episode in Audible's relevance ordering, so prefer the normalized track.
+            search_title = title
+            for entry in entries:
+                entry_title = entry.get('title', '')
+                candidate = clean_search_query(entry_title)
+                if candidate != entry_title.strip() and candidate:
+                    search_title = candidate
+                    break
+            meta = fetch_audible_metadata(_playlist_metadata_query(title, entries))
             
             return jsonify({
                 'is_playlist': True,
