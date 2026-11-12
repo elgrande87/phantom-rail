@@ -450,8 +450,13 @@ def _run_conversion_job(job_id, req_data, output_folder):
 
         safe_title = re.sub(r'[\/\\:\*\?"<>\|]', '_', title)
         safe_title = safe_title.strip() or "Hörbuch"
+
+        # Eigener Ordner pro Buch im gewaehlten Zielordner anlegen
+        book_folder = os.path.join(output_folder, safe_title)
+        os.makedirs(book_folder, exist_ok=True)
+
         out_filename = f"{safe_title}.m4b"
-        out_path = os.path.join(output_folder, out_filename)
+        out_path = os.path.join(book_folder, out_filename)
 
         def esc_ffmeta(val):
             s = str(val or '')
