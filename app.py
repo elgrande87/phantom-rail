@@ -13,6 +13,10 @@ import threading
 import queue
 import time
 import uuid
+import sys
+import importlib.metadata
+import importlib.util
+import ssl
 from folder_support import register_folders
 
 app = Flask(__name__)
@@ -82,66 +86,200 @@ def _emit_job_event(payload):
 SYSTEM_STATUS_LOCK = threading.Lock()
 SYSTEM_STATUS = {
     "state": "checking",
-    "message": "Prüfe yt-dlp & ffmpeg...",
+    "message": "Prüfe yt-dlp & Systemwerkzeuge...",
     "yt_dlp_version": "",
     "ffmpeg_version": "",
     "updated": False,
     "last_checked": 0,
+    # Neue Statusfelder sind additiv; bestehende UI-Clients blijven kompatibel.
+    "ffprobe_version": "nicht geprüft",
+    "javascript_runtime": "nicht geprüft",
+    "yt_dlp_ejs": False,
+    "ffmpeg_encoders": {"aac": False, "mjpeg": False},
+    "download_storage": {"writable": False, "free_bytes": 0, "total_bytes": 0},
+    "metadata_apis": {"api.audible.de": False, "api.audnex.us": False},
+    "checks": {},
 }
 
-def _get_cmd_output(cmd):
+
+def _run_command(cmd, timeout=15):
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-        if res.returncode == 0:
-            return (res.stdout or "").strip()
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except Exception:
-        pass
+        return None
+
+
+def _get_cmd_output(cmd):
+    res = _run_command(cmd)
+    if res and res.returncode == 0:
+        return (res.stdout or res.stderr or "").strip()
     return ""
+
+
+def _command_version(cmd):
+    output = _get_cmd_output(cmd)
+    return output.splitlines()[0].strip() if output else ""
+
+
+def _check_ffmpeg_encoders():
+    output = _get_cmd_output(["ffmpeg", "-hide_banner", "-encoders"])
+    found = {"aac": False, "mjpeg": False}
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] in found:
+            found[parts[1]] = True
+    return found
+
+
+def _check_download_storage():
+    result = {"writable": False, "free_bytes": 0, "total_bytes": 0}
+    try:
+        usage = shutil.disk_usage(DOWNLOAD_FOLDER)
+        result.update(free_bytes=usage.free, total_bytes=usage.total)
+    except OSError as error:
+        result["error"] = str(error)
+        return result
+    probe = None
+    try:
+        fd, probe = tempfile.mkstemp(prefix=".phantom_write_test_", dir=DOWNLOAD_FOLDER)
+        os.close(fd)
+        result["writable"] = True
+    except OSError as error:
+        result["error"] = str(error)
+    finally:
+        if probe:
+            try:
+                os.unlink(probe)
+            except OSError:
+                result["writable"] = False
+                result["error"] = "Schreibtest-Datei konnte nicht entfernt werden"
+    return result
+
+
+def _check_javascript_runtime():
+    for name in ("deno", "node", "nodejs"):
+        version = _command_version([name, "--version"])
+        if version:
+            return {"available": True, "name": name, "version": version}
+    return {"available": False, "name": "", "version": "fehlt"}
+
+
+def _check_yt_dlp_ejs():
+    try:
+        version = importlib.metadata.version("yt-dlp-ejs")
+        return {"available": True, "version": version}
+    except importlib.metadata.PackageNotFoundError:
+        try:
+            available = importlib.util.find_spec("yt_dlp_ejs") is not None
+        except (ImportError, ValueError):
+            available = False
+        return {"available": available, "version": "installiert" if available else "fehlt"}
+
+
+def _check_metadata_api(host):
+    context = ssl.create_default_context()
+    try:
+        import certifi
+        context = ssl.create_default_context(cafile=certifi.where())
+    except (ImportError, OSError):
+        pass
+    request = urllib.request.Request(f"https://{host}/", headers={"User-Agent": "Phantom-Rail/1.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=4, context=context) as response:
+            return {"reachable": 200 <= response.status < 500, "status": response.status}
+    except urllib.error.HTTPError as error:
+        # Auch 4xx/5xx bestätigt DNS, TLS und HTTP-Erreichbarkeit.
+        return {"reachable": True, "status": error.code}
+    except Exception as error:
+        return {"reachable": False, "error": str(error)[:160]}
+
+
+def _pip_update(pre_release=False):
+    package_args = ["yt-dlp[default]", "yt-dlp-ejs", "certifi"]
+    cmd = [sys.executable, "-m", "pip", "install", "--no-cache-dir", "-q", "-U"]
+    if pre_release:
+        cmd.append("--pre")
+    return subprocess.run(cmd + package_args, capture_output=True, text=True, timeout=240)
+
 
 def run_background_tool_check(force=False):
     with SYSTEM_STATUS_LOCK:
         if SYSTEM_STATUS["state"] in ("checking", "updating") and not force:
             return
         SYSTEM_STATUS["state"] = "checking"
-        SYSTEM_STATUS["message"] = "Prüfe Tools..."
+        SYSTEM_STATUS["message"] = "Prüfe Tools und Ressourcen..."
 
     ff_out = _get_cmd_output(["ffmpeg", "-version"])
-    ff_ver = "fehlt!"
-    if ff_out:
-        m = re.search(r"ffmpeg version\s+([^\s]+)", ff_out)
-        ff_ver = m.group(1) if m else "installiert"
-
+    ff_match = re.search(r"ffmpeg version\s+([^\s]+)", ff_out)
+    ff_ver = ff_match.group(1) if ff_match else ("installiert" if ff_out else "fehlt!")
+    ffprobe_out = _get_cmd_output(["ffprobe", "-version"])
+    probe_match = re.search(r"ffprobe version\s+([^\s]+)", ffprobe_out)
+    ffprobe_ver = probe_match.group(1) if probe_match else ("installiert" if ffprobe_out else "fehlt!")
     before_ver = _get_cmd_output(["yt-dlp", "--version"])
 
     with SYSTEM_STATUS_LOCK:
-        SYSTEM_STATUS["state"] = "updating"
-        SYSTEM_STATUS["message"] = "Prüfe/Aktualisiere yt-dlp..."
-        SYSTEM_STATUS["yt_dlp_version"] = before_ver
-        SYSTEM_STATUS["ffmpeg_version"] = ff_ver
+        SYSTEM_STATUS.update(state="updating", message="Aktualisiere yt-dlp (stable)...",
+                             yt_dlp_version=before_ver, ffmpeg_version=ff_ver,
+                             ffprobe_version=ffprobe_ver)
 
+    update_mode = "stable"
+    update_error = ""
     try:
-        subprocess.run(
-            ["pip", "install", "--no-cache-dir", "-q", "-U", "yt-dlp[default]"],
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-    except Exception as e:
-        print(f"Auto-Update Warnung: {e}")
+        stable_result = _pip_update(pre_release=False)
+        if stable_result.returncode != 0:
+            update_error = (stable_result.stderr or stable_result.stdout or "stable update failed").strip()[-500:]
+            update_mode = "nightly_fallback"
+            nightly_result = _pip_update(pre_release=True)
+            if nightly_result.returncode != 0:
+                update_error += " | nightly: " + (nightly_result.stderr or nightly_result.stdout or "failed").strip()[-500:]
+                update_mode = "failed"
+    except Exception as error:
+        update_error = str(error)[:500]
+        update_mode = "nightly_fallback"
+        try:
+            nightly_result = _pip_update(pre_release=True)
+            if nightly_result.returncode != 0:
+                update_error += " | nightly: " + (nightly_result.stderr or nightly_result.stdout or "failed").strip()[-500:]
+                update_mode = "failed"
+        except Exception as nightly_error:
+            update_error += " | nightly: " + str(nightly_error)[:250]
+            update_mode = "failed"
 
     after_ver = _get_cmd_output(["yt-dlp", "--version"]) or before_ver
-
+    js_runtime = _check_javascript_runtime()
+    ejs = _check_yt_dlp_ejs()
+    encoders = _check_ffmpeg_encoders()
+    storage = _check_download_storage()
+    api_results = {host: _check_metadata_api(host) for host in ("api.audible.de", "api.audnex.us")}
+    checks = {
+        "ffmpeg": bool(ff_out), "ffprobe": bool(ffprobe_out),
+        "javascript_runtime": js_runtime["available"], "yt_dlp_ejs": ejs["available"],
+        "ffmpeg_aac": encoders["aac"], "ffmpeg_mjpeg": encoders["mjpeg"],
+        "download_writable": storage["writable"], "download_space": storage["free_bytes"] > 0,
+        "audible_api": api_results["api.audible.de"]["reachable"],
+        "audnex_api": api_results["api.audnex.us"]["reachable"],
+        "yt_dlp": bool(after_ver), "yt_dlp_update": update_mode != "failed",
+    }
+    updated = bool(before_ver and after_ver and before_ver != after_ver)
+    ok = all(checks.values())
+    free_gib = storage["free_bytes"] / (1024 ** 3)
+    summary = (f"yt-dlp v{after_ver or 'unbekannt'}; ffmpeg {ff_ver}, ffprobe {ffprobe_ver}; "
+               f"JS {js_runtime['name'] or 'fehlt'}, EJS {'ok' if ejs['available'] else 'fehlt'}; "
+               f"AAC {'ok' if encoders['aac'] else 'fehlt'}, MJPEG {'ok' if encoders['mjpeg'] else 'fehlt'}; "
+               f"Speicher {'schreibbar' if storage['writable'] else 'nicht schreibbar'}, {free_gib:.2f} GiB frei; "
+               f"Audible {'ok' if checks['audible_api'] else 'nicht erreichbar'}, "
+               f"Audnex {'ok' if checks['audnex_api'] else 'nicht erreichbar'}; Update: {update_mode}.")
     with SYSTEM_STATUS_LOCK:
-        SYSTEM_STATUS["yt_dlp_version"] = after_ver or "unbekannt"
-        SYSTEM_STATUS["ffmpeg_version"] = ff_ver
-        SYSTEM_STATUS["last_checked"] = int(time.time())
-        SYSTEM_STATUS["updated"] = bool(before_ver and after_ver and before_ver != after_ver)
-        if after_ver and ff_ver != "fehlt!":
-            SYSTEM_STATUS["state"] = "up_to_date"
-            SYSTEM_STATUS["message"] = f"yt-dlp v{after_ver} (aktuell)"
-        else:
-            SYSTEM_STATUS["state"] = "warning"
-            SYSTEM_STATUS["message"] = "Prüfung unvollständig"
+        SYSTEM_STATUS.update(
+            yt_dlp_version=after_ver or "unbekannt", ffmpeg_version=ff_ver,
+            ffprobe_version=ffprobe_ver,
+            javascript_runtime={**js_runtime, "yt_dlp_ejs": ejs},
+            yt_dlp_ejs=ejs["available"], ffmpeg_encoders=encoders,
+            download_storage=storage, metadata_apis=api_results, checks=checks,
+            update_mode=update_mode, update_error=update_error,
+            last_checked=int(time.time()), updated=updated,
+            state="up_to_date" if ok else "warning", message=summary,
+        )
 
 @app.route("/system_status", methods=["GET", "POST"])
 def system_status_route():
@@ -177,50 +315,120 @@ def clean_search_query(query):
         text = cleaned
     return re.sub(r'\s+', ' ', text).strip()
 
-def _audible_search_candidates(query):
-    """Try exact episode terms first; only then broaden to the base title."""
-    normalized = clean_search_query(query)
-    if not normalized:
-        return []
-    episode = re.search(r'\bFolge\s*\d+\b', normalized, flags=re.I)
-    title = re.sub(r'[\(\[\{][^)]*[\)\]\}]', ' ', normalized)
-    title = re.sub(r'\s+', ' ', title).strip(' -:;,')
+def _audible_search_candidates(query, context=None):
+    """Return broad, high-signal queries before track-only fallbacks."""
+    context = context or {}
     terms = []
-    if episode and title:
-        terms.append(f"{title} {episode.group(0)}")
-    terms.append(normalized)
-    broad = re.sub(r'[\(\[\{][^)]*[\)\]\}]', ' ', normalized)
-    broad = re.sub(
-        r'\b(?:Kapitel|Teil|Part|Folge|Track|Episode)\s*\d+.*$',
-        '', broad, flags=re.I)
-    broad = re.sub(r'\s+', ' ', broad).strip(' -:;,')
-    if broad:
-        terms.append(broad)
+    playlist_title = clean_search_query(context.get('playlist_title') or '')
+    album = clean_search_query(context.get('album') or '')
+    if playlist_title:
+        terms.append(playlist_title)
+    if album and album != playlist_title:
+        terms.append(album)
+    for source in (context.get('artist'), context.get('uploader')):
+        cleaned_source = clean_search_query(source or '')
+        if cleaned_source and cleaned_source.casefold() not in {'unbekannt', 'unknown'}:
+            terms.append(cleaned_source)
+    for original in context.get('entry_titles') or []:
+        cleaned = clean_search_query(original)
+        if cleaned:
+            terms.append(cleaned)
+    normalized = clean_search_query(query)
+    if normalized:
+        terms.append(normalized)
+        episode = re.search(r'\bFolge\s*\d+\b', normalized, flags=re.I)
+        title = re.sub(r'[\(\[\{][^)]*[\)\]\}]', ' ', normalized)
+        title = re.sub(r'\s+', ' ', title).strip(' -:;,')
+        if episode and title:
+            terms.append(f"{title} {episode.group(0)}")
+        broad = re.sub(r'[\(\[\{][^)]*[\)\]\}]', ' ', normalized)
+        broad = re.sub(
+            r'\b(?:Kapitel|Teil|Part|Folge|Track|Episode)\s*\d+.*$',
+            '', broad, flags=re.I)
+        broad = re.sub(r'\s+', ' ', broad).strip(' -:;,')
+        if broad:
+            terms.append(broad)
     return list(dict.fromkeys(term for term in terms if term))
 
 
 def _playlist_metadata_query(playlist_title, entries):
-    """Prefer a cleaned playlist track title carrying its exact Folge number."""
-    candidates = []
-    for entry in entries or []:
-        if not isinstance(entry, dict):
-            continue
-        original = str(entry.get('title') or '').strip()
-        candidate = clean_search_query(original)
-        if candidate and candidate != original:
-            candidates.append(candidate)
-    for candidate in candidates:
-        if re.search(r'\bFolge\s*\d+\b', candidate, flags=re.I):
-            return candidate
-    return candidates[0] if candidates else clean_search_query(playlist_title)
+    """Keep the full playlist title as the search anchor, not just an intro track."""
+    return clean_search_query(playlist_title)
 
-def fetch_audible_metadata(query):
-    """Load metadata from Audible Germany."""
+
+def _audible_tokens(value):
+    value = html.unescape(str(value or '')).casefold()
+    value = re.sub(r'<[^>]+>', ' ', value)
+    return set(re.findall(r'[a-z0-9äöüß]+', value))
+
+
+def _score_audible_product(product, query, context=None):
+    """Score a product against playlist identity; reject unrelated relevance hits."""
+    context = context or {}
+    title = str(context.get('playlist_title') or query or '')
+    # OLAK playlist titles commonly put the series and episode before a dash,
+    # while track titles carry the episode-specific subject after Intro/Kapitel.
+    episode = re.search(r'\b(?:Folge\s*)?(\d+)\b', title, flags=re.I)
+    series_target = ''
+    if episode:
+        series_target = re.split(r'\s+\d+\s*[-–:]', title, maxsplit=1)[0].strip(' -–:')
+        if series_target == title:
+            series_target = ''
+
+    product_series = [
+        str(item.get('title') or item.get('name') or '')
+        for item in (product.get('series') or []) if isinstance(item, dict)
+    ]
+    publication = str(product.get('publication_name') or '')
+    product_title = str(product.get('title') or '')
+    subtitle = str(product.get('subtitle') or '')
+    series_name = ' '.join(product_series)
+    authors = ' '.join(
+        str(item.get('name') or '') for item in (product.get('authors') or [])
+        if isinstance(item, dict))
+    entry_titles = [clean_search_query(x) for x in context.get('entry_titles') or []]
+    entry_text = ' '.join(entry_titles)
+    summary = clean_html(product.get('publisher_summary') or product.get('merchandising_summary') or '')
+
+    series_tokens = _audible_tokens(series_target)
+    matched_series = max((
+        len(series_tokens & _audible_tokens(candidate)) / max(1, len(series_tokens))
+        for candidate in product_series + [publication]
+    ), default=0.0) if series_tokens else 0.0
+    seq = next((str(item.get('sequence') or '') for item in (product.get('series') or [])
+                if isinstance(item, dict) and item.get('sequence')), '')
+    episode_match = bool(episode and seq and int(episode.group(1)) == int(re.sub(r'\D', '', seq) or -1))
+    channel_tokens = _audible_tokens(context.get('uploader') or '') - {'topic', 'official'}
+    author_match = bool(channel_tokens & _audible_tokens(authors))
+    entry_tokens = _audible_tokens(entry_text) - {
+        'intro', 'outro', 'kapitel', 'folge', 'track', 'episode', 'teil', 'part'
+    }
+    product_name_tokens = _audible_tokens(' '.join([product_title, subtitle, publication]))
+    entry_name_overlap = (len(entry_tokens & product_name_tokens) / max(1, len(entry_tokens))) if entry_tokens else 0.0
+    summary_overlap = (len(entry_tokens & _audible_tokens(summary)) / max(1, len(entry_tokens))) if entry_tokens else 0.0
+    query_tokens = _audible_tokens(query) - {'der', 'die', 'das', 'des', 'und', 'ein', 'eine', 'folge', 'kapitel'}
+    query_overlap = len(query_tokens & product_name_tokens) / max(1, len(query_tokens)) if query_tokens else 0.0
+
+    score = (matched_series * 8) + (6 if episode_match else 0) + (3 if author_match else 0)
+    score += entry_name_overlap * 3 + summary_overlap * 1.5 + query_overlap * 2
+    # For episode playlists, series + exact sequence is authoritative. A title-only
+    # relevance hit (e.g. Dschinns by Fatma Aydemir) is explicitly insufficient.
+    if series_target:
+        accepted = matched_series >= 0.6 and episode_match
+    else:
+        accepted = query_overlap >= 0.6 and bool(product_title or subtitle)
+    return score, accepted
+
+
+def fetch_audible_metadata(query, context=None):
+    """Load only a plausibly matching title from Audible Germany."""
     if not query or not str(query).strip():
         return None
+    context = context or {}
     raw = clean_search_query(query)
-    terms = _audible_search_candidates(query)
+    terms = _audible_search_candidates(query, context)
     headers = {'User-Agent': 'Mozilla/5.0'}
+    products_by_asin = {}
     for term in terms:
         url = 'https://api.audible.de/1.0/catalog/products?' + urllib.parse.urlencode({
             'keywords': term,
@@ -233,58 +441,61 @@ def fetch_audible_metadata(query):
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=8) as response:
                 products = json.loads(response.read().decode('utf-8')).get('products') or []
-            if not products:
-                continue
-            product = products[0]
-            images = product.get('product_images') or {}
-            cover = next((
-                images.get(key) for key in ('1024', '800', '500')
-                if isinstance(images, dict) and images.get(key)
-            ), '')
-            cover = cover or product.get('image') or product.get('cover_url') or ''
-            def names(key):
-                return ', '.join(
-                    item['name'] for item in (product.get(key) or [])
-                    if isinstance(item, dict) and item.get('name'))
-            series = next((
-                item.get('title') or item.get('name')
-                for item in (product.get('series') or [])
-                if isinstance(item, dict) and (item.get('title') or item.get('name'))
-            ), '')
-            release = str(product.get('release_date') or product.get('publication_name') or '')
-            year = re.search(r'\b(?:19|20)\d{2}\b', release)
-            chapters, asin = [], product.get('asin')
-            if asin:
-                for endpoint in (
-                    f'https://api.audnex.us/books/{asin}/chapters',
-                    f'https://api.audnex.us/books/{asin}/chapters?region=de'
-                ):
-                    try:
-                        req = urllib.request.Request(endpoint, headers=headers)
-                        with urllib.request.urlopen(req, timeout=5) as response:
-                            rows = json.loads(response.read().decode('utf-8')).get('chapters') or []
-                        chapters = [
-                            item['title'] for item in rows
-                            if isinstance(item, dict) and item.get('title')]
-                        if chapters:
-                            break
-                    except Exception as error:
-                        print(f'Audnex chapters lookup failed: {error}')
-            description = product.get('publisher_summary') or product.get('merchandising_summary') or ''
-            return {
-                'title': product.get('title') or raw,
-                'author': names('authors'),
-                'narrator': names('narrators'),
-                'series': series,
-                'year': year.group(0) if year else '',
-                'cover_url': cover,
-                'description': clean_html(description),
-                'asin': asin,
-                'audible_chapters': chapters
-            }
+            for product in products:
+                if not isinstance(product, dict):
+                    continue
+                key = product.get('asin') or json.dumps(product, sort_keys=True, ensure_ascii=False)
+                products_by_asin[key] = product
         except Exception as error:
             print(f'Audible DE lookup failed for {term!r}: {error}')
-    return None
+
+    ranked = [(_score_audible_product(product, raw, context), product)
+              for product in products_by_asin.values()]
+    ranked = [(result, product) for result, product in ranked if result[1]]
+    if not ranked:
+        return None
+    (_, _), product = max(ranked, key=lambda item: item[0][0])
+    images = product.get('product_images') or {}
+    cover = next((images.get(key) for key in ('1024', '800', '500')
+                  if isinstance(images, dict) and images.get(key)), '')
+    cover = cover or product.get('image') or product.get('cover_url') or ''
+
+    def names(key):
+        return ', '.join(item['name'] for item in (product.get(key) or [])
+                         if isinstance(item, dict) and item.get('name'))
+
+    series = next((item.get('title') or item.get('name')
+                   for item in (product.get('series') or [])
+                   if isinstance(item, dict) and (item.get('title') or item.get('name'))), '')
+    release = str(product.get('release_date') or product.get('publication_name') or '')
+    year = re.search(r'\b(?:19|20)\d{2}\b', release)
+    chapters, asin = [], product.get('asin')
+    if asin:
+        for endpoint in (f'https://api.audnex.us/books/{asin}/chapters',
+                         f'https://api.audnex.us/books/{asin}/chapters?region=de'):
+            try:
+                req = urllib.request.Request(endpoint, headers=headers)
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    rows = json.loads(response.read().decode('utf-8')).get('chapters') or []
+                chapters = [item['title'] for item in rows
+                            if isinstance(item, dict) and item.get('title')]
+                if chapters:
+                    break
+            except Exception as error:
+                print(f'Audnex chapters lookup failed: {error}')
+    description = product.get('publisher_summary') or product.get('merchandising_summary') or ''
+    return {
+        # Some Audible responses omit `title`; let callers preserve their source title.
+        'title': product.get('title') or '',
+        'author': names('authors'),
+        'narrator': names('narrators'),
+        'series': series,
+        'year': year.group(0) if year else '',
+        'cover_url': cover,
+        'description': clean_html(description),
+        'asin': asin,
+        'audible_chapters': chapters
+    }
 
 @app.route('/info', methods=['POST'])
 @app.route('/inspect', methods=['POST'])
@@ -307,8 +518,11 @@ def info():
         chapters = []
         
         if is_playlist:
-            title = data.get('title', 'Unbekannte Playlist')
-            uploader = data.get('uploader') or data.get('channel', 'Unbekannt')
+            title = data.get('title') or data.get('playlist_title') or 'Unbekannte Playlist'
+            uploader = (data.get('uploader') or data.get('channel') or
+                        data.get('channel_title') or 'Unbekannt')
+            album = data.get('album') or ''
+            artist = data.get('artist') or data.get('artists') or ''
             entries = list(data.get('entries', []))
             
             for idx, entry in enumerate(entries):
@@ -324,18 +538,13 @@ def info():
             if not cover and entries and entries[0].get('thumbnails'):
                 cover = entries[0]['thumbnails'][-1].get('url', '')
                 
-            # YouTube Music OLAK (album) playlists are titled with the series and
-            # episode number, while their first track is often the actual book title
-            # prefixed by "Intro:". Searching the playlist title can match a different
-            # episode in Audible's relevance ordering, so prefer the normalized track.
-            search_title = title
-            for entry in entries:
-                entry_title = entry.get('title', '')
-                candidate = clean_search_query(entry_title)
-                if candidate != entry_title.strip() and candidate:
-                    search_title = candidate
-                    break
-            meta = fetch_audible_metadata(_playlist_metadata_query(title, entries))
+            # OLAK playlist titles often identify the series and exact episode;
+            # track titles remain useful as supplemental Audible query candidates.
+            meta = fetch_audible_metadata(
+                _playlist_metadata_query(title, entries),
+                context={'playlist_title': title, 'album': album, 'artist': artist,
+                         'entry_titles': [item.get('title', '') for item in entries if isinstance(item, dict)],
+                         'uploader': uploader})
             
             return jsonify({
                 'is_playlist': True,
