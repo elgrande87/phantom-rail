@@ -81,12 +81,108 @@ button.folder-tab.active::before, .folder-tab.active::before {
     }
 }
 
+
+        .sys-status-badge {
+            margin-left: auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 5px 12px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.25s ease;
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            background: rgba(15, 23, 42, 0.85);
+            color: #38bdf8;
+            white-space: nowrap;
+        }
+        .sys-status-badge:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.15);
+        }
+        .sys-status-badge.up_to_date {
+            border-color: rgba(34, 197, 94, 0.5);
+            background: rgba(20, 83, 45, 0.4);
+            color: #4ade80;
+        }
+        .sys-status-badge.warning {
+            border-color: rgba(245, 158, 11, 0.5);
+            background: rgba(120, 53, 15, 0.4);
+            color: #fbbf24;
+        }
+        .sys-spin {
+            animation: sysRotate 1.1s linear infinite;
+        }
+        @keyframes sysRotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+    </style>
+
+<style id="sysStatusCustomStyle">
+.sys-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 9999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: #1e293b;
+    color: #94a3b8;
+    border: 1px solid #334155;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+.sys-status-badge:hover {
+    filter: brightness(1.15);
+}
+.sys-status-badge.up_to_date {
+    background: rgba(16, 185, 129, 0.15) !important;
+    color: #34d399 !important;
+    border-color: rgba(16, 185, 129, 0.4) !important;
+}
+.sys-status-badge.warning {
+    background: rgba(245, 158, 11, 0.15) !important;
+    color: #fbbf24 !important;
+    border-color: rgba(245, 158, 11, 0.4) !important;
+}
+.sys-status-badge.error {
+    background: rgba(239, 68, 68, 0.15) !important;
+    color: #f87171 !important;
+    border-color: rgba(239, 68, 68, 0.4) !important;
+}
+.sys-spin svg {
+    animation: sysRotate 1s linear infinite;
+}
+@keyframes sysRotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
 </style>
+
 </head>
 <body>
 <div class="container">
 <div class="card">
-<div class="header-title"><img src="/static/pasted.svg" alt="phantom-rail Logo" class="brand-logo"><div class="brand-text"><span class="brand-name">phantom-rail</span><span class="brand-subtitle">Audiobook & M4B Chapter Binder</span></div></div>
+<div class="header-title" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+    <div style="display:flex; align-items:center; gap:14px;">
+        <img src="/static/pasted.svg" alt="phantom-rail Logo" class="brand-logo">
+        <div class="brand-text">
+            <span class="brand-name">phantom-rail</span>
+            <span class="brand-subtitle">Audiobook & M4B Chapter Binder</span>
+        </div>
+    </div>
+    <div id="sysStatusBadge" class="sys-status-badge" onclick="triggerSystemCheck()" title="Klicken für Update-Prüfung" style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:9999px; font-size:0.8rem; font-weight:600; cursor:pointer; background:#1e293b; color:#38bdf8; border:1px solid #334155; margin-left:auto;">
+        <span id="sysStatusIcon" class="sys-spin"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span>
+        <span id="sysStatusText">System: Bereit</span>
+    </div>
+</div>
 <div class="input-group" style="margin-top:14px"><label for="urlInput">URL (YouTube / Playlist / SoundCloud)</label><input type="url" id="urlInput" placeholder="https://www.youtube.com/playlist?list=..." required></div>
 <button id="inspectBtn" onclick="inspectUrl()">URL prüfen & Metadaten laden</button>
 </div>
@@ -150,7 +246,85 @@ document.getElementById('lookupMetaBtn').addEventListener('click', async functio
     } catch (error) { status.textContent = error.message; }
     finally { this.disabled = false; }
 });
-async function inspectUrl() {
+
+    
+    let pollInterval = null;
+
+    function updateSystemBadge(data) {
+        const badge = document.getElementById('sysStatusBadge');
+        const icon = document.getElementById('sysStatusIcon');
+        const text = document.getElementById('sysStatusText');
+        if (!badge || !icon || !text) return;
+
+        icon.classList.remove('sys-spin');
+        badge.classList.remove('up_to_date', 'warning', 'error');
+
+        if (data.state === 'checking') {
+            icon.classList.add('sys-spin');
+            icon.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
+            text.textContent = 'Prüfe...';
+        } else if (data.state === 'up_to_date') {
+            badge.classList.add('up_to_date');
+            icon.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+            text.textContent = 'yt-dlp: ' + (data.yt_dlp_version || 'aktuell');
+            if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+        } else if (data.state === 'needs_update') {
+            badge.classList.add('warning');
+            icon.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+            text.textContent = data.message || 'Update nötig';
+            if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+        } else {
+            badge.classList.add('error');
+            icon.innerHTML = '!';
+            text.textContent = data.message || 'Fehler';
+            if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+        }
+    }
+
+    async function pollSystemStatus() {
+        try {
+            const res = await fetch('/system_status');
+            if (res.ok) {
+                const data = await res.json();
+                updateSystemBadge(data);
+            }
+        } catch (e) {
+            console.error("Status-Abruf fehlgeschlagen:", e);
+        }
+    }
+
+    async function triggerSystemCheck() {
+        const icon = document.getElementById('sysStatusIcon');
+        const text = document.getElementById('sysStatusText');
+        if (icon) {
+            icon.classList.add('sys-spin');
+            icon.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
+        }
+        if (text) text.textContent = 'Prüfe...';
+
+        try {
+            const res = await fetch('/system_status?check=1', { method: 'POST' });
+            if (res.ok) {
+                const data = await res.json();
+                updateSystemBadge(data);
+            }
+        } catch (e) {}
+
+        // Nach Klick alle 1,5s abfragen bis Check beendet ist
+        if (!pollInterval) {
+            pollInterval = setInterval(pollSystemStatus, 1500);
+        }
+    }
+
+    window.triggerSystemCheck = triggerSystemCheck;
+    window.pollSystemStatus = pollSystemStatus;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        pollSystemStatus();
+        setInterval(pollSystemStatus, 60000);
+    });
+
+    async function inspectUrl() {
     const url = document.getElementById('urlInput').value.trim();
     if (!url) { alert('Bitte gib eine URL ein.'); return; }
     const btn = document.getElementById('inspectBtn');
@@ -434,6 +608,6 @@ document.addEventListener('visibilitychange', () => {
     }
 });
 </script>
-<script src="/static/folders.js"></script>
-</body>
-</html>
+<script src="/static/folders.js">
+    
+    

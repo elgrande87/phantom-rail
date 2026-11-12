@@ -77,6 +77,83 @@ def _emit_job_event(payload):
         JOB_COND.notify_all()
 
 
+
+# === AUTO-UPDATER & TOOL-STATUS BEIM START ===
+SYSTEM_STATUS_LOCK = threading.Lock()
+SYSTEM_STATUS = {
+    "state": "checking",
+    "message": "Prüfe yt-dlp & ffmpeg...",
+    "yt_dlp_version": "",
+    "ffmpeg_version": "",
+    "updated": False,
+    "last_checked": 0,
+}
+
+def _get_cmd_output(cmd):
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        if res.returncode == 0:
+            return (res.stdout or "").strip()
+    except Exception:
+        pass
+    return ""
+
+def run_background_tool_check(force=False):
+    with SYSTEM_STATUS_LOCK:
+        if SYSTEM_STATUS["state"] in ("checking", "updating") and not force:
+            return
+        SYSTEM_STATUS["state"] = "checking"
+        SYSTEM_STATUS["message"] = "Prüfe Tools..."
+
+    ff_out = _get_cmd_output(["ffmpeg", "-version"])
+    ff_ver = "fehlt!"
+    if ff_out:
+        m = re.search(r"ffmpeg version\s+([^\s]+)", ff_out)
+        ff_ver = m.group(1) if m else "installiert"
+
+    before_ver = _get_cmd_output(["yt-dlp", "--version"])
+
+    with SYSTEM_STATUS_LOCK:
+        SYSTEM_STATUS["state"] = "updating"
+        SYSTEM_STATUS["message"] = "Prüfe/Aktualisiere yt-dlp..."
+        SYSTEM_STATUS["yt_dlp_version"] = before_ver
+        SYSTEM_STATUS["ffmpeg_version"] = ff_ver
+
+    try:
+        subprocess.run(
+            ["pip", "install", "--no-cache-dir", "-q", "-U", "yt-dlp[default]"],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except Exception as e:
+        print(f"Auto-Update Warnung: {e}")
+
+    after_ver = _get_cmd_output(["yt-dlp", "--version"]) or before_ver
+
+    with SYSTEM_STATUS_LOCK:
+        SYSTEM_STATUS["yt_dlp_version"] = after_ver or "unbekannt"
+        SYSTEM_STATUS["ffmpeg_version"] = ff_ver
+        SYSTEM_STATUS["last_checked"] = int(time.time())
+        SYSTEM_STATUS["updated"] = bool(before_ver and after_ver and before_ver != after_ver)
+        if after_ver and ff_ver != "fehlt!":
+            SYSTEM_STATUS["state"] = "up_to_date"
+            SYSTEM_STATUS["message"] = f"yt-dlp v{after_ver} (aktuell)"
+        else:
+            SYSTEM_STATUS["state"] = "warning"
+            SYSTEM_STATUS["message"] = "Prüfung unvollständig"
+
+@app.route("/system_status", methods=["GET", "POST"])
+def system_status_route():
+    if request.method == "POST":
+        threading.Thread(target=run_background_tool_check, kwargs={"force": True}, daemon=True).start()
+    with SYSTEM_STATUS_LOCK:
+        return jsonify(dict(SYSTEM_STATUS))
+
+# Sofort beim Container-Start im Hintergrund anstoßen
+threading.Thread(target=run_background_tool_check, kwargs={"force": True}, daemon=True).start()
+
+
 @app.route('/')
 def index():
     return render_template('index.html')
