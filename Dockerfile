@@ -2,9 +2,11 @@ FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
     DOWNLOAD_FOLDER=/downloads \
-    TMPDIR=/downloads/.tmp_work
+    TMPDIR=/downloads/.tmp_work \
+    YTDLP_CHANNEL=stable \
+    MIN_FREE_DISK_GB=1.5
 
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg nodejs ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .
