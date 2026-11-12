@@ -2,9 +2,21 @@
 import os
 from flask import jsonify, request
 
+try:
+    from system_checks import attach_system_checks
+except Exception as _sc_err:
+    attach_system_checks = None
+    print(f"Warnung: system_checks konnte nicht geladen werden: {_sc_err}")
+
 
 def register_folders(app, root):
     root = os.path.realpath(root)
+
+    if attach_system_checks is not None:
+        try:
+            attach_system_checks(app, root)
+        except Exception as exc:
+            print(f"Warnung: attach_system_checks fehlgeschlagen: {exc}")
 
     def resolve(value):
         if not isinstance(value, str) or '\\' in value or '\x00' in value:
