@@ -142,6 +142,10 @@ button.folder-tab.active::before, .folder-tab.active::before {
 .sys-status-badge:hover {
     filter: brightness(1.15);
 }
+.sys-status-percent { font-variant-numeric: tabular-nums; min-width: 2.8em; text-align: right; }
+.sys-status-track { width: 48px; height: 5px; overflow: hidden; border-radius: 5px; background: rgba(148,163,184,.25); }
+.sys-status-progress { display:block; width:0%; height:100%; background: currentColor; transition: width .35s ease; }
+.sys-status-detail { max-width: min(360px, 75vw); white-space: normal; font-weight: 500; }
 .sys-status-badge.up_to_date {
     background: rgba(16, 185, 129, 0.15) !important;
     color: #34d399 !important;
@@ -181,6 +185,8 @@ button.folder-tab.active::before, .folder-tab.active::before {
     <div id="sysStatusBadge" class="sys-status-badge" onclick="triggerSystemCheck()" title="Klicken für Update-Prüfung" style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:9999px; font-size:0.8rem; font-weight:600; cursor:pointer; background:#1e293b; color:#38bdf8; border:1px solid #334155; margin-left:auto;">
         <span id="sysStatusIcon" class="sys-spin"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span>
         <span id="sysStatusText">System: Bereit</span>
+        <span id="sysStatusPercent" class="sys-status-percent" aria-live="polite">0%</span>
+        <span id="sysStatusTrack" class="sys-status-track" role="progressbar" aria-label="Systemcheck-Fortschritt" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="sysStatusProgress" class="sys-status-progress"></span></span>
     </div>
 </div>
 <div class="input-group" style="margin-top:14px"><label for="urlInput">URL (YouTube / Playlist / SoundCloud)</label><input type="url" id="urlInput" placeholder="https://www.youtube.com/playlist?list=..." required></div>
@@ -255,20 +261,35 @@ document.getElementById('lookupMetaBtn').addEventListener('click', async functio
         const icon = document.getElementById('sysStatusIcon');
         const text = document.getElementById('sysStatusText');
         if (!badge || !icon || !text) return;
+        const percent = Math.max(0, Math.min(100, Number(data.progress) || 0));
+        const percentEl = document.getElementById('sysStatusPercent');
+        const track = document.getElementById('sysStatusTrack');
+        const progressEl = document.getElementById('sysStatusProgress');
+        const running = data.state === 'checking' || data.state === 'updating';
+        badge.dataset.running = running ? 'true' : 'false';
+        if (running && !pollInterval) pollInterval = setInterval(pollSystemStatus, 1500);
+        if (!running && pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+        if (percentEl) percentEl.textContent = percent + '%';
+        if (track) track.setAttribute('aria-valuenow', String(percent));
+        if (progressEl) progressEl.style.width = percent + '%';
+        badge.title = [data.message, data.progress_step].filter(Boolean).join(' — ');
 
         icon.classList.remove('sys-spin');
         badge.classList.remove('up_to_date', 'warning', 'error');
 
-        if (data.state === 'checking') {
+        if (data.state === 'checking' || data.state === 'updating') {
             icon.classList.add('sys-spin');
             icon.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
-            text.textContent = 'Prüfe...';
+            text.textContent = data.progress_step || (data.state === 'updating' ? 'Aktualisiere...' : 'Prüfe...');
         } else if (data.state === 'up_to_date') {
             badge.classList.add('up_to_date');
             icon.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
             text.textContent = 'yt-dlp: ' + (data.yt_dlp_version || 'aktuell');
+            if (percentEl) percentEl.textContent = '100%';
+            if (progressEl) progressEl.style.width = '100%';
+            if (track) track.setAttribute('aria-valuenow', '100');
             if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
-        } else if (data.state === 'needs_update') {
+        } else if (data.state === 'needs_update' || data.state === 'warning') {
             badge.classList.add('warning');
             icon.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
             text.textContent = data.message || 'Update nötig';
@@ -283,7 +304,7 @@ document.getElementById('lookupMetaBtn').addEventListener('click', async functio
 
     async function pollSystemStatus() {
         try {
-            const res = await fetch('/system_status');
+            const res = await fetch('/api/yt-dlp-status');
             if (res.ok) {
                 const data = await res.json();
                 updateSystemBadge(data);
@@ -294,6 +315,8 @@ document.getElementById('lookupMetaBtn').addEventListener('click', async functio
     }
 
     async function triggerSystemCheck() {
+        const badge = document.getElementById('sysStatusBadge');
+        if (badge && badge.dataset.running === 'true') { pollSystemStatus(); return; }
         const icon = document.getElementById('sysStatusIcon');
         const text = document.getElementById('sysStatusText');
         if (icon) {
@@ -303,7 +326,7 @@ document.getElementById('lookupMetaBtn').addEventListener('click', async functio
         if (text) text.textContent = 'Prüfe...';
 
         try {
-            const res = await fetch('/system_status?check=1', { method: 'POST' });
+            const res = await fetch('/api/yt-dlp-status?check=1', { method: 'POST' });
             if (res.ok) {
                 const data = await res.json();
                 updateSystemBadge(data);

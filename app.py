@@ -18,6 +18,7 @@ import importlib.metadata
 import importlib.util
 import ssl
 from folder_support import register_folders
+from system_checks import register_system_checks
 
 app = Flask(__name__)
 DOWNLOAD_FOLDER = os.environ.get("DOWNLOAD_FOLDER", "/downloads")
@@ -102,194 +103,9 @@ SYSTEM_STATUS = {
 }
 
 
-def _run_command(cmd, timeout=15):
-    try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    except Exception:
-        return None
 
-
-def _get_cmd_output(cmd):
-    res = _run_command(cmd)
-    if res and res.returncode == 0:
-        return (res.stdout or res.stderr or "").strip()
-    return ""
-
-
-def _command_version(cmd):
-    output = _get_cmd_output(cmd)
-    return output.splitlines()[0].strip() if output else ""
-
-
-def _check_ffmpeg_encoders():
-    output = _get_cmd_output(["ffmpeg", "-hide_banner", "-encoders"])
-    found = {"aac": False, "mjpeg": False}
-    for line in output.splitlines():
-        parts = line.split()
-        if len(parts) >= 2 and parts[1] in found:
-            found[parts[1]] = True
-    return found
-
-
-def _check_download_storage():
-    result = {"writable": False, "free_bytes": 0, "total_bytes": 0}
-    try:
-        usage = shutil.disk_usage(DOWNLOAD_FOLDER)
-        result.update(free_bytes=usage.free, total_bytes=usage.total)
-    except OSError as error:
-        result["error"] = str(error)
-        return result
-    probe = None
-    try:
-        fd, probe = tempfile.mkstemp(prefix=".phantom_write_test_", dir=DOWNLOAD_FOLDER)
-        os.close(fd)
-        result["writable"] = True
-    except OSError as error:
-        result["error"] = str(error)
-    finally:
-        if probe:
-            try:
-                os.unlink(probe)
-            except OSError:
-                result["writable"] = False
-                result["error"] = "Schreibtest-Datei konnte nicht entfernt werden"
-    return result
-
-
-def _check_javascript_runtime():
-    for name in ("deno", "node", "nodejs"):
-        version = _command_version([name, "--version"])
-        if version:
-            return {"available": True, "name": name, "version": version}
-    return {"available": False, "name": "", "version": "fehlt"}
-
-
-def _check_yt_dlp_ejs():
-    try:
-        version = importlib.metadata.version("yt-dlp-ejs")
-        return {"available": True, "version": version}
-    except importlib.metadata.PackageNotFoundError:
-        try:
-            available = importlib.util.find_spec("yt_dlp_ejs") is not None
-        except (ImportError, ValueError):
-            available = False
-        return {"available": available, "version": "installiert" if available else "fehlt"}
-
-
-def _check_metadata_api(host):
-    context = ssl.create_default_context()
-    try:
-        import certifi
-        context = ssl.create_default_context(cafile=certifi.where())
-    except (ImportError, OSError):
-        pass
-    request = urllib.request.Request(f"https://{host}/", headers={"User-Agent": "Phantom-Rail/1.0"})
-    try:
-        with urllib.request.urlopen(request, timeout=4, context=context) as response:
-            return {"reachable": 200 <= response.status < 500, "status": response.status}
-    except urllib.error.HTTPError as error:
-        # Auch 4xx/5xx bestätigt DNS, TLS und HTTP-Erreichbarkeit.
-        return {"reachable": True, "status": error.code}
-    except Exception as error:
-        return {"reachable": False, "error": str(error)[:160]}
-
-
-def _pip_update(pre_release=False):
-    package_args = ["yt-dlp[default]", "yt-dlp-ejs", "certifi"]
-    cmd = [sys.executable, "-m", "pip", "install", "--no-cache-dir", "-q", "-U"]
-    if pre_release:
-        cmd.append("--pre")
-    return subprocess.run(cmd + package_args, capture_output=True, text=True, timeout=240)
-
-
-def run_background_tool_check(force=False):
-    with SYSTEM_STATUS_LOCK:
-        if SYSTEM_STATUS["state"] in ("checking", "updating") and not force:
-            return
-        SYSTEM_STATUS["state"] = "checking"
-        SYSTEM_STATUS["message"] = "Prüfe Tools und Ressourcen..."
-
-    ff_out = _get_cmd_output(["ffmpeg", "-version"])
-    ff_match = re.search(r"ffmpeg version\s+([^\s]+)", ff_out)
-    ff_ver = ff_match.group(1) if ff_match else ("installiert" if ff_out else "fehlt!")
-    ffprobe_out = _get_cmd_output(["ffprobe", "-version"])
-    probe_match = re.search(r"ffprobe version\s+([^\s]+)", ffprobe_out)
-    ffprobe_ver = probe_match.group(1) if probe_match else ("installiert" if ffprobe_out else "fehlt!")
-    before_ver = _get_cmd_output(["yt-dlp", "--version"])
-
-    with SYSTEM_STATUS_LOCK:
-        SYSTEM_STATUS.update(state="updating", message="Aktualisiere yt-dlp (stable)...",
-                             yt_dlp_version=before_ver, ffmpeg_version=ff_ver,
-                             ffprobe_version=ffprobe_ver)
-
-    update_mode = "stable"
-    update_error = ""
-    try:
-        stable_result = _pip_update(pre_release=False)
-        if stable_result.returncode != 0:
-            update_error = (stable_result.stderr or stable_result.stdout or "stable update failed").strip()[-500:]
-            update_mode = "nightly_fallback"
-            nightly_result = _pip_update(pre_release=True)
-            if nightly_result.returncode != 0:
-                update_error += " | nightly: " + (nightly_result.stderr or nightly_result.stdout or "failed").strip()[-500:]
-                update_mode = "failed"
-    except Exception as error:
-        update_error = str(error)[:500]
-        update_mode = "nightly_fallback"
-        try:
-            nightly_result = _pip_update(pre_release=True)
-            if nightly_result.returncode != 0:
-                update_error += " | nightly: " + (nightly_result.stderr or nightly_result.stdout or "failed").strip()[-500:]
-                update_mode = "failed"
-        except Exception as nightly_error:
-            update_error += " | nightly: " + str(nightly_error)[:250]
-            update_mode = "failed"
-
-    after_ver = _get_cmd_output(["yt-dlp", "--version"]) or before_ver
-    js_runtime = _check_javascript_runtime()
-    ejs = _check_yt_dlp_ejs()
-    encoders = _check_ffmpeg_encoders()
-    storage = _check_download_storage()
-    api_results = {host: _check_metadata_api(host) for host in ("api.audible.de", "api.audnex.us")}
-    checks = {
-        "ffmpeg": bool(ff_out), "ffprobe": bool(ffprobe_out),
-        "javascript_runtime": js_runtime["available"], "yt_dlp_ejs": ejs["available"],
-        "ffmpeg_aac": encoders["aac"], "ffmpeg_mjpeg": encoders["mjpeg"],
-        "download_writable": storage["writable"], "download_space": storage["free_bytes"] > 0,
-        "audible_api": api_results["api.audible.de"]["reachable"],
-        "audnex_api": api_results["api.audnex.us"]["reachable"],
-        "yt_dlp": bool(after_ver), "yt_dlp_update": update_mode != "failed",
-    }
-    updated = bool(before_ver and after_ver and before_ver != after_ver)
-    ok = all(checks.values())
-    free_gib = storage["free_bytes"] / (1024 ** 3)
-    summary = (f"yt-dlp v{after_ver or 'unbekannt'}; ffmpeg {ff_ver}, ffprobe {ffprobe_ver}; "
-               f"JS {js_runtime['name'] or 'fehlt'}, EJS {'ok' if ejs['available'] else 'fehlt'}; "
-               f"AAC {'ok' if encoders['aac'] else 'fehlt'}, MJPEG {'ok' if encoders['mjpeg'] else 'fehlt'}; "
-               f"Speicher {'schreibbar' if storage['writable'] else 'nicht schreibbar'}, {free_gib:.2f} GiB frei; "
-               f"Audible {'ok' if checks['audible_api'] else 'nicht erreichbar'}, "
-               f"Audnex {'ok' if checks['audnex_api'] else 'nicht erreichbar'}; Update: {update_mode}.")
-    with SYSTEM_STATUS_LOCK:
-        SYSTEM_STATUS.update(
-            yt_dlp_version=after_ver or "unbekannt", ffmpeg_version=ff_ver,
-            ffprobe_version=ffprobe_ver,
-            javascript_runtime={**js_runtime, "yt_dlp_ejs": ejs},
-            yt_dlp_ejs=ejs["available"], ffmpeg_encoders=encoders,
-            download_storage=storage, metadata_apis=api_results, checks=checks,
-            update_mode=update_mode, update_error=update_error,
-            last_checked=int(time.time()), updated=updated,
-            state="up_to_date" if ok else "warning", message=summary,
-        )
-
-@app.route("/system_status", methods=["GET", "POST"])
-def system_status_route():
-    if request.method == "POST":
-        threading.Thread(target=run_background_tool_check, kwargs={"force": True}, daemon=True).start()
-    with SYSTEM_STATUS_LOCK:
-        return jsonify(dict(SYSTEM_STATUS))
-
-# Sofort beim Container-Start im Hintergrund anstoßen
-threading.Thread(target=run_background_tool_check, kwargs={"force": True}, daemon=True).start()
+# Startup check and /system_status route are owned by system_checks.py.
+register_system_checks(app, SYSTEM_STATUS, SYSTEM_STATUS_LOCK, DOWNLOAD_FOLDER, CURRENT_JOB)
 
 
 @app.route('/')
@@ -440,7 +256,7 @@ def fetch_audible_metadata(query, context=None):
         try:
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=8) as response:
-                products = json.loads(response.read().decode('utf-8')).get('products') or []
+                products = json.loads(response.read().decode('utf-8', errors='replace')).get('products') or []
             for product in products:
                 if not isinstance(product, dict):
                     continue
@@ -476,7 +292,7 @@ def fetch_audible_metadata(query, context=None):
             try:
                 req = urllib.request.Request(endpoint, headers=headers)
                 with urllib.request.urlopen(req, timeout=5) as response:
-                    rows = json.loads(response.read().decode('utf-8')).get('chapters') or []
+                    rows = json.loads(response.read().decode('utf-8', errors='replace')).get('chapters') or []
                 chapters = [item['title'] for item in rows
                             if isinstance(item, dict) and item.get('title')]
                 if chapters:
@@ -511,7 +327,7 @@ def info():
         url
     ]
     try:
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", check=True)
         data = json.loads(res.stdout)
         
         is_playlist = 'entries' in data and data['entries'] is not None
@@ -679,7 +495,7 @@ def _run_conversion_job(job_id, req_data, output_folder):
             url
         ]
 
-        proc = subprocess.Popen(dl_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        proc = subprocess.Popen(dl_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1)
         for line in iter(proc.stdout.readline, ''):
             m_item = re.search(r'\[download\]\s+Downloading\s+(?:item|video)\s+(\d+)\s+of\s+(\d+)', line, re.I)
             if m_item:
@@ -835,7 +651,7 @@ def _run_conversion_job(job_id, req_data, output_folder):
                         '-of', 'default=noprint_wrappers=1:nokey=1',
                         a_file
                     ]
-                    dur_res = subprocess.run(p_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    dur_res = subprocess.run(p_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
                     try:
                         dur_sec = float(dur_res.stdout.strip() or 0)
                     except ValueError:
@@ -868,7 +684,7 @@ def _run_conversion_job(job_id, req_data, output_folder):
                     '-of', 'default=noprint_wrappers=1:nokey=1',
                     audio_files[0]
                 ]
-                dur_res = subprocess.run(p_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                dur_res = subprocess.run(p_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
                 try:
                     total_duration_ms = int(float(dur_res.stdout.strip() or 0) * 1000)
                 except ValueError:
@@ -935,7 +751,7 @@ def _run_conversion_job(job_id, req_data, output_folder):
             out_path
         ])
 
-        ff_proc = subprocess.Popen(ff_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        ff_proc = subprocess.Popen(ff_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1)
         last_ff_pct = 50
         replaced_ff_line = False
         for line in iter(ff_proc.stdout.readline, ''):
@@ -978,7 +794,7 @@ def _run_conversion_job(job_id, req_data, output_folder):
                 'msg': 'Streamkopie fehlgeschlagen; starte AAC-Neucodierung mit 128 kbit/s ...',
                 'replace_line': False
             })
-            ff_proc = subprocess.Popen(retry_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            ff_proc = subprocess.Popen(retry_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1)
             for retry_line in iter(ff_proc.stdout.readline, ''):
                 retry_text = retry_line.strip()
                 if retry_text:

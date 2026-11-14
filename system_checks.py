@@ -11,6 +11,8 @@ Implements startup and on-demand verification for:
 
 import importlib
 import importlib.metadata
+import json
+import queue
 import os
 import re
 import shutil
@@ -104,39 +106,111 @@ def _reload_certifi():
         return {"ok": False, "version": "Fehler", "error": str(exc)}
 
 
-def _update_packages_with_nightly_fallback(preferred_channel="stable"):
-    """Update yt-dlp[default], yt-dlp-ejs and certifi via pip, falling back to nightly (--pre)."""
+def _latest_stable_yt_dlp_version(timeout=3):
+    """Read PyPI's canonical stable version; None means the lookup was inconclusive."""
+    req = urllib.request.Request("https://pypi.org/pypi/yt-dlp/json",
+                                 headers={"User-Agent": "phantom-rail-healthcheck"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        return str(payload["info"]["version"])
+    except Exception:
+        return None
+
+
+def _should_update_yt_dlp(installed_version, latest_version):
+    """Avoid needless pip upgrade work, comparing PEP 440 versions canonically."""
+    if not installed_version or not latest_version:
+        return True
+    try:
+        from packaging.version import Version
+        return Version(str(installed_version).strip()) < Version(str(latest_version).strip())
+    except Exception:
+        return not _same_version(installed_version, latest_version)
+
+
+def _update_packages_with_nightly_fallback(preferred_channel="stable", progress_callback=None):
+    """Update packages, reporting a coarse (time/stage based) pip progress estimate."""
     python_exe = sys.executable or "python3"
     base_pkgs = ["yt-dlp[default]", "yt-dlp-ejs", "certifi"]
 
-    def _pip_install(pre=False):
-        cmd = [python_exe, "-m", "pip", "install", "--no-cache-dir", "-q", "-U"]
+    def _pip_install(pre=False, progress_start=25, progress_end=66):
+        cmd = [python_exe, "-m", "pip", "install", "--no-cache-dir", "--progress-bar", "off", "-U"]
         if pre:
             cmd.append("--pre")
         cmd.extend(base_pkgs)
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        label = "nightly" if pre else "stable"
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, bufsize=1)
+        lines = queue.Queue()
+
+        def read_output():
+            try:
+                for line in proc.stdout:
+                    lines.put(line.strip())
+            finally:
+                lines.put(None)
+
+        threading.Thread(target=read_output, daemon=True).start()
+        started = time.monotonic()
+        best = progress_start
+        output_done = False
+        last_detail = f"pip {label}: starte"
+        stage_points = (("collecting", 0.10), ("downloading", 0.27),
+                        ("installing collected packages", 0.55), ("successfully installed", 0.90),
+                        ("requirement already satisfied", 0.90))
+        while proc.poll() is None:
+            try:
+                line = lines.get(timeout=0.5)
+                if line is None:
+                    output_done = True
+                elif line:
+                    lowered = line.lower()
+                    last_detail = f"pip {label}: {line[:120]}"
+                    for marker, fraction in stage_points:
+                        if marker in lowered:
+                            best = max(best, progress_start + int((progress_end-progress_start)*fraction))
+                            break
+            except queue.Empty:
+                pass
+
+            # pip's output does not expose a reliable aggregate byte percentage. This
+            # bounded elapsed-time estimate keeps the badge moving but is labeled as such.
+            elapsed = time.monotonic() - started
+            estimate = progress_start + int((progress_end-progress_start)*0.82*min(elapsed/120.0, 1.0))
+            best = max(best, estimate)
+            if progress_callback:
+                detail = last_detail if output_done is False else f"pip {label}: Abschluss läuft"
+                progress_callback(best, f"{detail} · ca. {int(elapsed)} s (Schätzwert)")
+            if elapsed >= 180:
+                proc.kill()
+                proc.wait()
+                raise subprocess.TimeoutExpired(cmd, 180)
+        proc.wait()
+        if progress_callback:
+            progress_callback(progress_end, f"pip {label}: beendet" if proc.returncode == 0 else f"pip {label}: Fehler")
+        return subprocess.CompletedProcess(cmd, proc.returncode, "", "")
 
     used_channel = "nightly" if preferred_channel == "nightly" else "stable"
     fallback_triggered = False
-
     try:
-        res = _pip_install(pre=(used_channel == "nightly"))
-        after_ver = _run_cmd(["yt-dlp", "--version"])
-        if res.returncode != 0 or not after_ver:
-            if used_channel != "nightly":
-                fallback_triggered = True
-                used_channel = "nightly"
-                _pip_install(pre=True)
-    except Exception:
+        if used_channel == "nightly":
+            res = _pip_install(pre=True, progress_start=25, progress_end=68)
+        else:
+            res = _pip_install(pre=False, progress_start=25, progress_end=60)
+    except Exception as exc:
+        res = subprocess.CompletedProcess([], 1, "", str(exc))
+    after_ver = _run_cmd(["yt-dlp", "--version"])
+    if res.returncode != 0 or not after_ver:
         if used_channel != "nightly":
+            fallback_triggered = True
+            used_channel = "nightly"
             try:
-                fallback_triggered = True
-                used_channel = "nightly"
-                _pip_install(pre=True)
-            except Exception as fallback_err:
-                print(f"Nightly-Fallback fehlgeschlagen: {fallback_err}")
-
-    return {"channel": used_channel, "nightly_fallback": fallback_triggered}
+                res = _pip_install(pre=True, progress_start=60, progress_end=70)
+            except Exception as exc:
+                res = subprocess.CompletedProcess([], 1, "", str(exc))
+    return {"channel": used_channel, "nightly_fallback": fallback_triggered,
+            "pip_returncode": res.returncode}
 
 
 def check_storage(download_folder):
@@ -214,98 +288,127 @@ def _check_metadata_apis():
     return {"endpoints": results, "ok": all_ok}
 
 
+
+def _same_version(left, right):
+    """Compare version labels semantically (e.g. 2026.03.03 == 2026.3.3)."""
+    try:
+        from packaging.version import Version
+        return Version(str(left).strip()) == Version(str(right).strip())
+    except Exception:
+        def normalized(value):
+            return tuple(int(part) for part in re.findall(r"\d+", str(value)))
+        return normalized(left) == normalized(right)
+
+
+def _check_metadata_apis_for_endpoint(key, url):
+    ssl_ctx = None
+    try:
+        if certifi is not None:
+            ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        pass
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (phantom-rail-healthcheck)"})
+    try:
+        with urllib.request.urlopen(req, timeout=4, context=ssl_ctx) as resp:
+            code = getattr(resp, "status", 200)
+            return {"reachable": 200 <= code < 500, "status": code}
+    except urllib.error.HTTPError as exc:
+        return {"reachable": 200 <= exc.code < 500, "status": exc.code}
+    except Exception as exc:
+        return {"reachable": False, "error": str(exc)}
+
 def register_system_checks(app, system_status, system_status_lock, download_folder, current_job=None):
     """Replace the /system_status view function and run the enhanced startup check."""
 
     def run_enhanced_tool_check(force=False):
+        def set_progress(percent, message, state="checking"):
+            with system_status_lock:
+                system_status.update(state=state, progress=max(0, min(100, int(percent))),
+                                     progress_step=message, message=message)
+
         with system_status_lock:
             if system_status.get("state") in ("checking", "updating") and not force:
                 return
-            system_status["state"] = "checking"
-            system_status["message"] = "Prüfe ffmpeg, ffprobe, Encoder & JS-Runtime..."
+            system_status.update(state="checking", progress=0,
+                                 progress_step="Initialisiere Systemchecks", message="Initialisiere Systemchecks")
 
+        set_progress(3, "Prüfe ffmpeg")
         ff_ver = _extract_tool_version("ffmpeg", r"ffmpeg version\s+([^\s]+)")
+        set_progress(9, "Prüfe ffprobe")
         fp_ver = _extract_tool_version("ffprobe", r"ffprobe version\s+([^\s]+)")
+        set_progress(15, "Prüfe FFmpeg-Encoder")
         encoders = _check_ffmpeg_encoders()
+        set_progress(20, "Prüfe JavaScript-Runtime")
         js_info = _check_js_runtime()
+        set_progress(24, "Prüfe installierte yt-dlp-Version")
         before_ver = _run_cmd(["yt-dlp", "--version"])
 
         with system_status_lock:
-            system_status["state"] = "updating"
-            system_status["message"] = "Aktualisiere yt-dlp, EJS & certifi..."
-            system_status["yt_dlp_version"] = before_ver
-            system_status["ffmpeg_version"] = ff_ver
-            system_status["ffprobe_version"] = fp_ver
-            system_status["encoders"] = encoders
-            system_status["js_runtime"] = js_info
+            system_status.update(state="updating", progress=25, progress_step="Aktualisiere yt-dlp, EJS & certifi",
+                                 message="Aktualisiere yt-dlp, EJS & certifi...", yt_dlp_version=before_ver,
+                                 ffmpeg_version=ff_ver, ffprobe_version=fp_ver, encoders=encoders, js_runtime=js_info)
 
-        # Avoid pip-updating while an active download job is running
         job_active = bool(current_job and current_job.get("active"))
-        update_info = {"channel": YTDLP_CHANNEL, "nightly_fallback": False, "skipped_due_to_active_job": job_active}
-        if not job_active:
-            update_info.update(_update_packages_with_nightly_fallback(YTDLP_CHANNEL))
+        latest_ver = _latest_stable_yt_dlp_version()
+        update_info = {"channel": YTDLP_CHANNEL, "nightly_fallback": False,
+                       "skipped_due_to_active_job": job_active,
+                       "latest_stable_version": latest_ver}
+        needs_update = YTDLP_CHANNEL == "nightly" or _should_update_yt_dlp(before_ver, latest_ver)
+        if not job_active and needs_update:
+            update_info.update(_update_packages_with_nightly_fallback(
+                YTDLP_CHANNEL, progress_callback=lambda pct, msg: set_progress(pct, msg, "updating")))
+        elif job_active:
+            set_progress(70, "pip-Update wegen aktivem Download übersprungen", "checking")
+        else:
+            update_info["skipped_current"] = True
+            set_progress(70, f"yt-dlp {before_ver} ist bereits aktuell (PyPI {latest_ver})", "checking")
 
+        set_progress(73, "Lade certifi-Zertifikate neu")
         cert_info = _reload_certifi()
+        set_progress(77, "Prüfe yt-dlp-ejs")
         ejs_info = _check_ejs_installed()
         after_ver = _run_cmd(["yt-dlp", "--version"]) or before_ver
 
-        with system_status_lock:
-            system_status["message"] = "Prüfe Speicherplatz, Schreibrechte & Metadaten-APIs..."
-
+        set_progress(81, "Prüfe Download-Speicher")
         storage_info = check_storage(download_folder)
-        api_info = _check_metadata_apis()
+        set_progress(88, "Prüfe Audible-Metadaten-API")
+        api_results = {}
+        for key, url in (("audible_de", "https://api.audible.de/1.0/catalog/products?num_results=1&keywords=test"),
+                         ("audnex_us", "https://api.audnex.us/books/B000000000")):
+            api_results[key] = _check_metadata_apis_for_endpoint(key, url)
+            set_progress(88 if key == "audible_de" else 96,
+                         "Prüfe Audnex-Metadaten-API" if key == "audible_de" else "Schließe Systemchecks ab")
+        api_info = {"endpoints": api_results, "ok": all(x.get("reachable", False) for x in api_results.values())}
 
         warnings = []
-        if not after_ver:
-            warnings.append("yt-dlp fehlt")
-        if ff_ver == "fehlt!":
-            warnings.append("ffmpeg fehlt")
-        if fp_ver == "fehlt!":
-            warnings.append("ffprobe fehlt")
+        if not after_ver: warnings.append("yt-dlp fehlt")
+        if ff_ver == "fehlt!": warnings.append("ffmpeg fehlt")
+        if fp_ver == "fehlt!": warnings.append("ffprobe fehlt")
         if not encoders.get("ok"):
             missing_enc = [k for k in ("aac", "mjpeg") if not encoders.get(k)]
             warnings.append(f"FFmpeg-Encoder fehlt ({', '.join(missing_enc)})")
-        if not js_info.get("available"):
-            warnings.append("JS-Runtime (node/deno) fehlt")
-        if not ejs_info.get("installed"):
-            warnings.append("yt-dlp-ejs fehlt")
-        if not cert_info.get("ok"):
-            warnings.append("certifi Fehler")
-        if not storage_info.get("writable"):
-            warnings.append("Keine Schreibrechte in /downloads")
-        elif not storage_info.get("disk_ok"):
-            warnings.append(f"Wenig Speicher ({storage_info.get('free_gb')} GB frei)")
+        if not js_info.get("available"): warnings.append("JS-Runtime (node/deno) fehlt")
+        if not ejs_info.get("installed"): warnings.append("yt-dlp-ejs fehlt")
+        if not cert_info.get("ok"): warnings.append("certifi Fehler")
+        if not storage_info.get("writable"): warnings.append("Keine Schreibrechte im Download-Ordner")
+        elif not storage_info.get("disk_ok"): warnings.append(f"Wenig Speicher ({storage_info.get('free_gb')} GB frei)")
         if not api_info.get("ok"):
-            down_apis = [k for k, v in api_info["endpoints"].items() if not v.get("reachable")]
+            down_apis = [k for k, v in api_results.items() if not v.get("reachable")]
             warnings.append(f"API nicht erreichbar ({', '.join(down_apis)})")
 
         channel_suffix = " [nightly]" if update_info.get("nightly_fallback") or update_info.get("channel") == "nightly" else ""
-
         with system_status_lock:
-            system_status["yt_dlp_version"] = after_ver or "unbekannt"
-            system_status["yt_dlp_channel"] = update_info.get("channel", "stable")
-            system_status["nightly_fallback"] = bool(update_info.get("nightly_fallback"))
-            system_status["ffmpeg_version"] = ff_ver
-            system_status["ffprobe_version"] = fp_ver
-            system_status["encoders"] = encoders
-            system_status["js_runtime"] = js_info
-            system_status["yt_dlp_ejs"] = ejs_info
-            system_status["certifi"] = cert_info
-            system_status["storage"] = storage_info
-            system_status["metadata_apis"] = api_info
-            system_status["warnings"] = warnings
-            system_status["last_checked"] = int(time.time())
-            system_status["updated"] = bool(before_ver and after_ver and before_ver != after_ver)
-
-            if not warnings:
-                system_status["state"] = "up_to_date"
-                system_status["message"] = (
-                    f"yt-dlp v{after_ver}{channel_suffix} | "
-                    f"{storage_info.get('free_gb')} GB frei | Alle Checks OK"
-                )
-            else:
-                system_status["state"] = "warning"
-                system_status["message"] = "Warnung: " + "; ".join(warnings)
+            system_status.update(progress=100, progress_step="Systemchecks abgeschlossen",
+                yt_dlp_version=after_ver or "unbekannt", yt_dlp_latest_version=latest_ver,
+                yt_dlp_update_skipped=bool(update_info.get("skipped_current")),
+                yt_dlp_channel=update_info.get("channel", "stable"),
+                nightly_fallback=bool(update_info.get("nightly_fallback")), ffmpeg_version=ff_ver,
+                ffprobe_version=fp_ver, encoders=encoders, js_runtime=js_info, yt_dlp_ejs=ejs_info,
+                certifi=cert_info, storage=storage_info, metadata_apis=api_info, warnings=warnings,
+                last_checked=int(time.time()), updated=bool(before_ver and after_ver and not _same_version(before_ver, after_ver)))
+            system_status["state"] = "warning" if warnings else "up_to_date"
+            system_status["message"] = ("Warnung: " + "; ".join(warnings)) if warnings else (
+                f"yt-dlp v{after_ver}{channel_suffix} | {storage_info.get('free_gb')} GB frei | Alle Checks OK")
 
     def enhanced_system_status_route():
         if request.method == "POST":
@@ -317,6 +420,10 @@ def register_system_checks(app, system_status, system_status_lock, download_fold
         app.view_functions["system_status_route"] = enhanced_system_status_route
     else:
         app.add_url_rule("/system_status", "system_status_route", enhanced_system_status_route, methods=["GET", "POST"])
+    # API alias used by the percentage badge; the response includes `progress`.
+    if "api_yt_dlp_status" not in app.view_functions:
+        app.add_url_rule("/api/yt-dlp-status", "api_yt_dlp_status",
+                         enhanced_system_status_route, methods=["GET", "POST"])
 
     threading.Thread(target=run_enhanced_tool_check, kwargs={"force": True}, daemon=True).start()
     return run_enhanced_tool_check
