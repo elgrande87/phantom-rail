@@ -239,7 +239,11 @@ button.folder-tab.active::before, .folder-tab.active::before {
 </div>
 <div class="card" id="progressCard" style="display:none"><h2>Fortschritt</h2>
 <div class="progress-box"><div class="progress-label"><span id="dlStatusLabel">1. Download-Fortschritt (Gesamtes Buch)</span><span id="dlPercent">0%</span></div><div class="progress-bar-container"><div id="dlBar" class="progress-bar"></div></div></div>
-<div class="progress-box" style="margin-top:12px"><div class="progress-label"><span>2. M4B Zusammenfügen & Kapitel schreiben</span><span id="procPercent">0%</span></div><div class="progress-bar-container"><div id="procBar" class="progress-bar" style="background:var(--success)"></div></div></div><div id="logOutput">Warte auf Server-Rückmeldung...</div></div>
+<div class="progress-box" style="margin-top:12px"><div class="progress-label"><span>2. M4B Zusammenfügen & Kapitel schreiben</span><span id="procPercent">0%</span></div><div class="progress-bar-container"><div id="procBar" class="progress-bar" style="background:var(--success)"></div></div></div>
+<div style="margin-top:14px; display:flex; justify-content:flex-end;">
+    <button id="cancelBtn" onclick="cancelJob()" style="background:var(--danger); color:#fff; width:auto; padding:10px 18px; font-size:0.92rem; display:none;">Job abbrechen & Temp löschen</button>
+</div>
+<div id="logOutput">Warte auf Server-Rückmeldung...</div></div>
 </div>
 <script>
 let globalChapters = [];
@@ -248,6 +252,7 @@ let inspectedUrl = '';
 let initialCleanedChapters = [];
 let activeStreamController = null;
 let reconnectingTimer = null;
+let lastDownloadPct = 0;
 
 function updateCoverPreview() {
     document.getElementById('coverPreview').src = document.getElementById('coverUrlInput').value;
@@ -458,6 +463,35 @@ function appendLogLine(text, replaceLast = false, cssClass = '') {
     log.scrollTop = log.scrollHeight;
 }
 
+function setCancelButtonVisible(visible) {
+    const cancelBtn = document.getElementById('cancelBtn');
+    if (cancelBtn) {
+        cancelBtn.style.display = visible ? 'inline-block' : 'none';
+        cancelBtn.disabled = false;
+        cancelBtn.innerText = 'Job abbrechen & Temp löschen';
+    }
+}
+
+async function cancelJob() {
+    const cancelBtn = document.getElementById('cancelBtn');
+    if (cancelBtn) {
+        cancelBtn.disabled = true;
+        cancelBtn.innerText = 'Breche ab...';
+    }
+    appendLogLine('Sende Abbruch-Anforderung an den Server...', false, 'error');
+    try {
+        const res = await fetch('/cancel', {method:'POST'});
+        const data = await res.json();
+        if (data.status === 'cancelling' || data.status === 'ok') {
+            appendLogLine('Job wurde abgebrochen und temporäre Dateien werden bereinigt.', false, 'error');
+        } else {
+            appendLogLine(data.msg || 'Kein aktiver Job zum Abbrechen gefunden.');
+        }
+    } catch (e) {
+        appendLogLine('Fehler beim Abbrechen: ' + e.message, false, 'error');
+    }
+}
+
 async function consumeEventStream(response) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -468,11 +502,22 @@ async function consumeEventStream(response) {
         if (!data) return;
         const msg = JSON.parse(data);
         handleServerMessage(msg);
+        if (msg.status === 'cancelled') {
+            finished = true;
+            setCancelButtonVisible(false);
+            const button = document.getElementById('downloadBtn');
+            if (button) button.disabled = false;
+            return;
+        }
         if (msg.status === 'error' || msg.type === 'error') {
             finished = true;
+            setCancelButtonVisible(false);
             throw new Error(msg.msg || msg.message || 'Verarbeitung fehlgeschlagen');
         }
-        if (msg.status === 'done' || msg.type === 'finished') finished = true;
+        if (msg.status === 'done' || msg.type === 'finished') {
+            finished = true;
+            setCancelButtonVisible(false);
+        }
     };
     try {
         while (true) {
@@ -501,6 +546,7 @@ async function attachToRunningJob(isInitialPageLoad = false) {
 
         const button = document.getElementById('downloadBtn');
         if (button) button.disabled = Boolean(st.running);
+        setCancelButtonVisible(Boolean(st.running));
         document.getElementById('progressCard').style.display = 'block';
         const log = document.getElementById('logOutput');
         log.replaceChildren();
@@ -513,6 +559,7 @@ async function attachToRunningJob(isInitialPageLoad = false) {
                 try { await consumeEventStream(response); } catch (err) { appendLogLine('Fehler: ' + err.message, false, 'error'); }
             }
             activeStreamController = null;
+            setCancelButtonVisible(false);
             return;
         }
 
@@ -524,8 +571,9 @@ async function attachToRunningJob(isInitialPageLoad = false) {
         activeStreamController = null;
         if (!finished) {
             scheduleReconnect();
-        } else if (button) {
-            button.disabled = false;
+        } else {
+            if (button) button.disabled = false;
+            setCancelButtonVisible(false);
         }
     } catch (err) {
         activeStreamController = null;
@@ -550,6 +598,7 @@ function scheduleReconnect() {
             } else {
                 const button = document.getElementById('downloadBtn');
                 if (button) button.disabled = false;
+                setCancelButtonVisible(false);
                 await attachToRunningJob(true);
             }
         } catch (_) {
@@ -583,6 +632,8 @@ async function startDownload() {
     };
     const button = document.getElementById('downloadBtn');
     button.disabled = true;
+    lastDownloadPct = 0;
+    setCancelButtonVisible(true);
     document.getElementById('progressCard').style.display = 'block';
     document.getElementById('progressCard').scrollIntoView({behavior:'smooth'});
     for (const id of ['dl','proc']) setProgress(id, 0);
@@ -610,6 +661,7 @@ async function startDownload() {
             return;
         }
         button.disabled = false;
+        setCancelButtonVisible(false);
     } catch (err) {
         activeStreamController = null;
         const isDisconnect = err.message === 'Load failed' || err.message === 'Failed to fetch' || err.name === 'TypeError';
@@ -620,10 +672,18 @@ async function startDownload() {
         }
         appendLogLine('Fehler: ' + err.message, false, 'error');
         button.disabled = false;
+        setCancelButtonVisible(false);
     }
 }
 function setProgress(id, value) {
-    const pct = Math.min(100, Math.max(0, Math.round(Number(value) || 0)));
+    let pct = Math.min(100, Math.max(0, Math.round(Number(value) || 0)));
+    if (id === 'dl') {
+        if (pct < lastDownloadPct && pct < 100) {
+            pct = lastDownloadPct;
+        } else {
+            lastDownloadPct = pct;
+        }
+    }
     document.getElementById(id + 'Bar').style.width = pct + '%';
     document.getElementById(id + 'Percent').innerText = pct + '%';
 }
@@ -632,10 +692,26 @@ function handleServerMessage(msg) {
     const text = msg.msg || msg.message;
     const isError = msg.status === 'error' || msg.type === 'error';
     const isDone = msg.status === 'done' || msg.type === 'finished';
+    const isCancelled = msg.status === 'cancelled';
+
     if (text && !isError) {
-        if (msg.status === 'downloading' && /Kapitel \d+\s*\//.test(text)) document.getElementById('dlStatusLabel').textContent = text.split('— Gesamt:')[0].trim();
-        appendLogLine(text, Boolean(msg.replace_line), isDone ? 'done' : '');
+        if (msg.status === 'downloading' && /Kapitel \d+\s*\//.test(text)) {
+            document.getElementById('dlStatusLabel').textContent = text.split('— Gesamt:')[0].trim();
+        }
+        let css = '';
+        if (isDone) css = 'done';
+        if (isCancelled || isError) css = 'error';
+        appendLogLine(text, Boolean(msg.replace_line), css);
     }
+
+    if (isCancelled) {
+        setCancelButtonVisible(false);
+        const button = document.getElementById('downloadBtn');
+        if (button) button.disabled = false;
+        document.getElementById('dlStatusLabel').textContent = 'Vorgang abgebrochen & bereinigt';
+        return;
+    }
+
     if (msg.dl_progress !== undefined) {
         setProgress('dl', msg.dl_progress);
     } else if (msg.status === 'downloading') {
@@ -650,7 +726,11 @@ function handleServerMessage(msg) {
     } else if (msg.type === 'proc_progress') {
         setProgress('proc', msg.percent);
     }
-    if (isDone) {setProgress('dl',100); setProgress('proc',100);}
+    if (isDone) {
+        setProgress('dl',100);
+        setProgress('proc',100);
+        setCancelButtonVisible(false);
+    }
 }
 
 // Beim Laden der Seite oder Zurückkehren aus dem Standby (iOS) automatisch laufenden Job wiederaufnehmen
