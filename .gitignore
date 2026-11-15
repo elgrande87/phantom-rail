@@ -1,5 +1,37 @@
+# Python bytecode and test/tool caches
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage*
+htmlcov/
+
+# Local virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Local secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.local
+
+# Editor, OS, and temporary/backup files
+.DS_Store
+*.swp
+*.swo
+*~
+*.bak
 *.bak.*
 *.before-folders
+*.before-folders.*
 app.py.bak*
+*.orig
+*.rej
