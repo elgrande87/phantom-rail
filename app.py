@@ -14,6 +14,7 @@ import queue
 import time
 import uuid
 import sys
+import signal
 import importlib.metadata
 import importlib.util
 import ssl
@@ -43,6 +44,7 @@ JOB_COND = threading.Condition(JOB_LOCK)
 CURRENT_JOB = {
     "id": None,
     "active": False,
+    "cancelled": False,
     "status": "idle",
     "title": "",
     "dl_progress": 0,
@@ -51,6 +53,9 @@ CURRENT_JOB = {
     "dl_label": "1. Download-Fortschritt (Gesamtes Buch)",
     "events": [],
     "updated_at": 0.0,
+    "work_dir": None,
+    "current_subprocesses": [],
+    "target_file": None,
 }
 
 def _emit_job_event(payload):
@@ -76,7 +81,7 @@ def _emit_job_event(payload):
             if len(events) > 400:
                 del events[:100]
 
-        if st in ("done", "error"):
+        if st in ("done", "error", "cancelled"):
             CURRENT_JOB["active"] = False
         CURRENT_JOB["updated_at"] = time.time()
         JOB_COND.notify_all()
@@ -90,7 +95,6 @@ SYSTEM_STATUS = {
     "ffmpeg_version": "",
     "updated": False,
     "last_checked": 0,
-    # Neue Statusfelder sind additiv; bestehende UI-Clients blijven kompatibel.
     "ffprobe_version": "nicht geprüft",
     "javascript_runtime": "nicht geprüft",
     "yt_dlp_ejs": False,
@@ -100,7 +104,6 @@ SYSTEM_STATUS = {
     "checks": {},
 }
 
-# Startup check and /system_status route are owned by system_checks.py.
 register_system_checks(app, SYSTEM_STATUS, SYSTEM_STATUS_LOCK, DOWNLOAD_FOLDER, CURRENT_JOB)
 
 
@@ -115,7 +118,6 @@ def clean_html(raw_html):
     return html.unescape(re.sub(r'<[^>]+>', '', str(raw_html))).strip()
 
 def clean_search_query(query):
-    """Strip leading track labels without discarding episode identifiers."""
     text = html.unescape(str(query or '')).strip()
     prefix = re.compile(
         r'^(?:intro|outro|credits?|kapitel\s*\d+|track\s*\d+|'
@@ -128,7 +130,6 @@ def clean_search_query(query):
     return re.sub(r'\s+', ' ', text).strip()
 
 def _audible_search_candidates(query, context=None):
-    """Return broad, high-signal queries before track-only fallbacks."""
     context = context or {}
     terms = []
     playlist_title = clean_search_query(context.get('playlist_title') or '')
@@ -164,7 +165,6 @@ def _audible_search_candidates(query, context=None):
 
 
 def _playlist_metadata_query(playlist_title, entries):
-    """Keep the full playlist title as the search anchor, not just an intro track."""
     return clean_search_query(playlist_title)
 
 
@@ -175,11 +175,8 @@ def _audible_tokens(value):
 
 
 def _score_audible_product(product, query, context=None):
-    """Score a product against playlist identity; reject unrelated relevance hits."""
     context = context or {}
     title = str(context.get('playlist_title') or query or '')
-    # OLAK playlist titles commonly put the series and episode before a dash,
-    # while track titles carry the episode-specific subject after Intro/Kapitel.
     episode = re.search(r'\b(?:Folge\s*)?(\d+)\b', title, flags=re.I)
     series_target = ''
     if episode:
@@ -223,8 +220,6 @@ def _score_audible_product(product, query, context=None):
 
     score = (matched_series * 8) + (6 if episode_match else 0) + (3 if author_match else 0)
     score += entry_name_overlap * 3 + summary_overlap * 1.5 + query_overlap * 2
-    # For episode playlists, series + exact sequence is authoritative. A title-only
-    # relevance hit (e.g. Dschinns by Fatma Aydemir) is explicitly insufficient.
     if series_target:
         accepted = matched_series >= 0.6 and episode_match
     else:
@@ -233,7 +228,6 @@ def _score_audible_product(product, query, context=None):
 
 
 def fetch_audible_metadata(query, context=None):
-    """Load only a plausibly matching title from Audible Germany."""
     if not query or not str(query).strip():
         return None
     context = context or {}
@@ -297,7 +291,6 @@ def fetch_audible_metadata(query, context=None):
                 print(f'Audnex chapters lookup failed: {error}')
     description = product.get('publisher_summary') or product.get('merchandising_summary') or ''
     return {
-        # Some Audible responses omit `title`; let callers preserve their source title.
         'title': product.get('title') or '',
         'author': names('authors'),
         'narrator': names('narrators'),
@@ -350,8 +343,6 @@ def info():
             if not cover and entries and entries[0].get('thumbnails'):
                 cover = entries[0]['thumbnails'][-1].get('url', '')
                 
-            # OLAK playlist titles often identify the series and exact episode;
-            # track titles remain useful as supplemental Audible query candidates.
             meta = fetch_audible_metadata(
                 _playlist_metadata_query(title, entries),
                 context={'playlist_title': title, 'album': album, 'artist': artist,
@@ -437,6 +428,70 @@ def lookup_meta():
     })
 
 
+def _kill_subprocesses():
+    with JOB_LOCK:
+        procs = list(CURRENT_JOB.get("current_subprocesses") or [])
+    for p in procs:
+        if p and p.poll() is None:
+            try:
+                os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+            except Exception:
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
+    time.sleep(0.5)
+    for p in procs:
+        if p and p.poll() is None:
+            try:
+                os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+            except Exception:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+
+
+@app.route('/cancel', methods=['POST'])
+def cancel_job():
+    with JOB_COND:
+        if not CURRENT_JOB.get("active"):
+            return jsonify({'success': False, 'message': 'Kein aktiver Job vorhanden'}), 400
+        job_id = CURRENT_JOB.get("id")
+        work_dir = CURRENT_JOB.get("work_dir")
+        target_file = CURRENT_JOB.get("target_file")
+        CURRENT_JOB["cancelled"] = True
+        CURRENT_JOB["active"] = False
+
+    _kill_subprocesses()
+
+    if work_dir and os.path.exists(work_dir):
+        try:
+            shutil.rmtree(work_dir, ignore_errors=True)
+        except Exception as err:
+            print(f"Fehler beim Bereinigen von {work_dir}: {err}")
+
+    if target_file and os.path.exists(target_file):
+        try:
+            os.remove(target_file)
+        except Exception as err:
+            print(f"Fehler beim Entfernen unfertiger Zieldatei {target_file}: {err}")
+
+    try:
+        for old_item in glob.glob(os.path.join(TMP_BASE_DIR, "work_*")):
+            if os.path.isdir(old_item):
+                shutil.rmtree(old_item, ignore_errors=True)
+    except Exception:
+        pass
+
+    _emit_job_event({
+        'status': 'cancelled',
+        'msg': 'Job wurde vom Benutzer abgebrochen und temporäre Dateien gelöscht.',
+        'replace_line': False
+    })
+    return jsonify({'success': True, 'message': 'Job abgebrochen und bereinigt'})
+
+
 def _run_conversion_job(job_id, req_data, output_folder):
     url = req_data.get('url')
     title = req_data.get('title', 'Hörbuch').strip()
@@ -464,18 +519,25 @@ def _run_conversion_job(job_id, req_data, output_folder):
     tmpdir = tempfile.mkdtemp(prefix="work_", dir=TMP_BASE_DIR)
     proc = None
     ff_proc = None
+    target_out_path = None
+
+    with JOB_LOCK:
+        CURRENT_JOB["work_dir"] = tmpdir
+        CURRENT_JOB["current_subprocesses"] = []
+        CURRENT_JOB["cancelled"] = False
+
     try:
         total_items = max(1, len(chapters)) if is_playlist else 1
         current_item = 1
-        last_overall_pct = -1.0
-        last_item_reported = 0
+        max_download_pct = 0.0
+        current_item_max_pct = 0.0
 
         _emit_job_event({
             'status': 'downloading',
             'dl_progress': 0,
             'proc_progress': 0,
             'progress': 0,
-            'msg': f'Starte Audio-Download ({total_items} Kapitel/Tracks)...',
+            'msg': f'Starte Audio-Download ({total_items} Kapitel/Tracks)... — Gesamt: 0.0%',
             'replace_line': False
         })
 
@@ -494,22 +556,39 @@ def _run_conversion_job(job_id, req_data, output_folder):
             url
         ]
 
-        proc = subprocess.Popen(dl_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1)
+        proc = subprocess.Popen(
+            dl_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            start_new_session=True
+        )
+
+        with JOB_LOCK:
+            CURRENT_JOB["current_subprocesses"].append(proc)
+
         for line in iter(proc.stdout.readline, ''):
+            if CURRENT_JOB.get("cancelled"):
+                return
+
             m_item = re.search(r'\[download\]\s+Downloading\s+(?:item|video)\s+(\d+)\s+of\s+(\d+)', line, re.I)
             if m_item:
                 current_item = int(m_item.group(1))
                 total_items = max(1, int(m_item.group(2)))
-                base_pct = min(100.0, max(0.0, ((current_item - 1) / max(1, total_items)) * 100.0))
-                last_overall_pct = base_pct
-                last_item_reported = current_item
+                current_item_max_pct = 0.0
+                ch_pct = (current_item - 1) / total_items * 100.0
+                if ch_pct > max_download_pct:
+                    max_download_pct = ch_pct
                 ch_title = get_chapter_title(current_item - 1)
                 _emit_job_event({
                     'status': 'downloading',
-                    'dl_progress': round(base_pct, 1),
+                    'dl_progress': round(max_download_pct, 1),
                     'proc_progress': 0,
-                    'progress': int(base_pct * 0.5),
-                    'msg': f'Lade Kapitel {current_item}/{total_items}: {ch_title} (0.0%) — Gesamt: {base_pct:.1f}%',
+                    'progress': int(max_download_pct * 0.5),
+                    'msg': f'Lade Kapitel {current_item}/{total_items}: {ch_title} (0.0%) — Gesamt: {max_download_pct:.1f}%',
                     'replace_line': True
                 })
                 continue
@@ -517,36 +596,40 @@ def _run_conversion_job(job_id, req_data, output_folder):
             m = re.search(r'\[download\]\s+([\d\.]+)%', line)
             if m:
                 p = float(m.group(1))
-                overall_pct = ((current_item - 1) + (p / 100.0)) / total_items * 100.0
-                overall_pct = min(100.0, max(0.0, overall_pct))
-                if abs(overall_pct - last_overall_pct) >= 0.3 or p >= 100.0 or current_item != last_item_reported:
-                    last_overall_pct = overall_pct
-                    replace_flag = (current_item == last_item_reported)
-                    last_item_reported = current_item
-                    ch_title = get_chapter_title(current_item - 1)
-                    if total_items > 1:
-                        msg_text = f"Lade Kapitel {current_item}/{total_items}: {ch_title} ({p:.1f}%) — Gesamt: {overall_pct:.1f}%"
-                    else:
-                        msg_text = f"Download: {overall_pct:.1f}%"
-                    _emit_job_event({
-                        'status': 'downloading',
-                        'dl_progress': round(overall_pct, 1),
-                        'proc_progress': 0,
-                        'progress': int(overall_pct * 0.5),
-                        'msg': msg_text,
-                        'replace_line': replace_flag
-                    })
+                if p > current_item_max_pct:
+                    current_item_max_pct = p
+                dl_fraction = min(1.0, max(0.0, current_item_max_pct / 100.0))
+                item_overall_pct = ((current_item - 1) + (dl_fraction * 0.85)) / total_items * 100.0
+                if item_overall_pct > max_download_pct:
+                    max_download_pct = min(99.0, item_overall_pct)
+
+                ch_title = get_chapter_title(current_item - 1)
+                if total_items > 1:
+                    msg_text = f"Lade Kapitel {current_item}/{total_items}: {ch_title} ({current_item_max_pct:.1f}%) — Gesamt: {max_download_pct:.1f}%"
+                else:
+                    msg_text = f"Download: {max_download_pct:.1f}% — Gesamt: {max_download_pct:.1f}%"
+
+                _emit_job_event({
+                    'status': 'downloading',
+                    'dl_progress': round(max_download_pct, 1),
+                    'proc_progress': 0,
+                    'progress': int(max_download_pct * 0.5),
+                    'msg': msg_text,
+                    'replace_line': True
+                })
                 continue
 
             if '[ExtractAudio]' in line:
                 ch_title = get_chapter_title(current_item - 1)
-                overall_pct = round((current_item / total_items) * 100, 1)
-                msg_text = f"Konvertiere Kapitel {current_item}/{total_items}: {ch_title}..." if total_items > 1 else "Konvertiere Audio nach M4A..."
+                conv_pct = (current_item / total_items) * 100.0
+                if conv_pct > max_download_pct:
+                    max_download_pct = min(100.0, conv_pct)
+                msg_text = f"Konvertiere Kapitel {current_item}/{total_items}: {ch_title}... — Gesamt: {max_download_pct:.1f}%" if total_items > 1 else f"Konvertiere Audio nach M4A... — Gesamt: {max_download_pct:.1f}%"
                 _emit_job_event({
                     'status': 'downloading',
-                    'dl_progress': overall_pct,
+                    'dl_progress': round(max_download_pct, 1),
                     'proc_progress': 0,
-                    'progress': int(overall_pct * 0.5),
+                    'progress': int(max_download_pct * 0.5),
                     'msg': msg_text,
                     'replace_line': True
                 })
@@ -562,6 +645,9 @@ def _run_conversion_job(job_id, req_data, output_folder):
 
         proc.wait()
 
+        if CURRENT_JOB.get("cancelled"):
+            return
+
         downloaded = glob.glob(f"{tmpdir}/*.m4a")
         if proc.returncode != 0 and not downloaded:
             _emit_job_event({'status': 'error', 'msg': 'Download fehlgeschlagen'})
@@ -576,6 +662,9 @@ def _run_conversion_job(job_id, req_data, output_folder):
             'replace_line': False
         })
 
+        if CURRENT_JOB.get("cancelled"):
+            return
+
         # 2. Cover
         cover_file = None
         if cover_url:
@@ -587,6 +676,9 @@ def _run_conversion_job(job_id, req_data, output_folder):
             except Exception as ce:
                 print(f"Cover Download Fehler: {ce}")
                 cover_file = None
+
+        if CURRENT_JOB.get("cancelled"):
+            return
 
         _emit_job_event({
             'status': 'processing',
@@ -610,12 +702,15 @@ def _run_conversion_job(job_id, req_data, output_folder):
         safe_title = re.sub(r'[\/\\:\*\?"<>\|]', '_', title)
         safe_title = safe_title.strip() or "Hörbuch"
 
-        # Eigener Ordner pro Buch im gewaehlten Zielordner anlegen
         book_folder = os.path.join(output_folder, safe_title)
         os.makedirs(book_folder, exist_ok=True)
 
         out_filename = f"{safe_title}.m4b"
         out_path = os.path.join(book_folder, out_filename)
+        target_out_path = out_path
+
+        with JOB_LOCK:
+            CURRENT_JOB["target_file"] = out_path
 
         def esc_ffmeta(val):
             s = str(val or '')
@@ -624,7 +719,6 @@ def _run_conversion_job(job_id, req_data, output_folder):
 
         total_duration_ms = 0
 
-        # Metadata File fuer ffmpeg
         ffmeta_path = os.path.join(tmpdir, "ffmetadata.txt")
         with open(ffmeta_path, "w", encoding="utf-8") as f:
             f.write(";FFMETADATA1\n")
@@ -645,6 +739,8 @@ def _run_conversion_job(job_id, req_data, output_folder):
                 current_time_ms = 0
                 num_files = len(audio_files)
                 for idx, a_file in enumerate(audio_files):
+                    if CURRENT_JOB.get("cancelled"):
+                        return
                     p_cmd = [
                         'ffprobe', '-v', 'error',
                         '-show_entries', 'format=duration',
@@ -704,6 +800,9 @@ def _run_conversion_job(job_id, req_data, output_folder):
                     f.write(f'END={total_duration_ms}\n')
                     f.write(f'title={esc_ffmeta(get_chapter_title(0))}\n')
 
+        if CURRENT_JOB.get("cancelled"):
+            return
+
         _emit_job_event({
             'status': 'processing',
             'dl_progress': 100,
@@ -713,7 +812,6 @@ def _run_conversion_job(job_id, req_data, output_folder):
             'replace_line': False
         })
 
-        # FFmpeg M4B Zusammenfuehrung
         if is_playlist or len(audio_files) > 1:
             concat_list = os.path.join(tmpdir, "concat.txt")
             with open(concat_list, "w", encoding="utf-8") as cf:
@@ -751,10 +849,25 @@ def _run_conversion_job(job_id, req_data, output_folder):
             out_path
         ])
 
-        ff_proc = subprocess.Popen(ff_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1)
+        ff_proc = subprocess.Popen(
+            ff_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            start_new_session=True
+        )
+
+        with JOB_LOCK:
+            CURRENT_JOB["current_subprocesses"].append(ff_proc)
+
         last_ff_pct = 50
         replaced_ff_line = False
         for line in iter(ff_proc.stdout.readline, ''):
+            if CURRENT_JOB.get("cancelled"):
+                return
             key_value = line.strip().split('=', 1)
             if len(key_value) == 2 and key_value[0] in ('bitrate', 'total_size', 'out_time', 'speed'):
                 _emit_job_event({
@@ -782,6 +895,10 @@ def _run_conversion_job(job_id, req_data, output_folder):
                     replaced_ff_line = True
 
         ff_proc.wait()
+
+        if CURRENT_JOB.get("cancelled"):
+            return
+
         if ff_proc.returncode != 0:
             retry_cmd = list(ff_cmd)
             codec_index = retry_cmd.index('-c:a')
@@ -794,8 +911,22 @@ def _run_conversion_job(job_id, req_data, output_folder):
                 'msg': 'Streamkopie fehlgeschlagen; starte AAC-Neucodierung mit 128 kbit/s ...',
                 'replace_line': False
             })
-            ff_proc = subprocess.Popen(retry_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1)
+            ff_proc = subprocess.Popen(
+                retry_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+                start_new_session=True
+            )
+            with JOB_LOCK:
+                CURRENT_JOB["current_subprocesses"].append(ff_proc)
+
             for retry_line in iter(ff_proc.stdout.readline, ''):
+                if CURRENT_JOB.get("cancelled"):
+                    return
                 retry_text = retry_line.strip()
                 if retry_text:
                     _emit_job_event({
@@ -808,6 +939,9 @@ def _run_conversion_job(job_id, req_data, output_folder):
                 _emit_job_event({'status': 'error', 'msg': 'FFmpeg Streamkopie und AAC-Neucodierung fehlgeschlagen'})
                 return
 
+        if CURRENT_JOB.get("cancelled"):
+            return
+
         _emit_job_event({
             'status': 'done',
             'dl_progress': 100,
@@ -819,19 +953,27 @@ def _run_conversion_job(job_id, req_data, output_folder):
         })
 
     except Exception as e:
-        _emit_job_event({'status': 'error', 'msg': str(e)})
+        if not CURRENT_JOB.get("cancelled"):
+            _emit_job_event({'status': 'error', 'msg': str(e)})
     finally:
         for active_proc in (ff_proc, proc):
             if active_proc is not None and active_proc.poll() is None:
                 try:
                     active_proc.terminate()
-                    active_proc.wait(timeout=3)
+                    active_proc.wait(timeout=2)
                 except Exception:
                     try:
                         active_proc.kill()
-                        active_proc.wait(timeout=3)
                     except Exception:
                         pass
+
+        if CURRENT_JOB.get("cancelled"):
+            if target_out_path and os.path.exists(target_out_path):
+                try:
+                    os.remove(target_out_path)
+                except Exception:
+                    pass
+
         shutil.rmtree(tmpdir, ignore_errors=True)
         with JOB_COND:
             if CURRENT_JOB.get("id") == job_id and CURRENT_JOB.get("active"):
@@ -858,7 +1000,7 @@ def _stream_current_job(job_id):
 
         for ev in batch:
             yield f"data: {json.dumps(ev)}\n\n"
-            if ev.get("status") in ("done", "error"):
+            if ev.get("status") in ("done", "error", "cancelled"):
                 return
 
         if not batch:
@@ -874,8 +1016,9 @@ def job_status():
             "id": CURRENT_JOB["id"],
             "active": CURRENT_JOB["active"],
             "running": CURRENT_JOB["active"],
+            "cancelled": CURRENT_JOB.get("cancelled", False),
             "event_count": len(CURRENT_JOB["events"]),
-            "done": CURRENT_JOB["status"] in ("done", "error"),
+            "done": CURRENT_JOB["status"] in ("done", "error", "cancelled"),
             "status": CURRENT_JOB["status"],
             "title": CURRENT_JOB["title"],
             "dl_progress": CURRENT_JOB["dl_progress"],
@@ -913,7 +1056,6 @@ def process():
 
     with JOB_COND:
         if CURRENT_JOB.get("active"):
-            # Falls bereits ein Job laeuft, einfach an den laufenden Job anhaengen!
             job_id = CURRENT_JOB["id"]
             already_running = True
         else:
@@ -921,6 +1063,7 @@ def process():
             CURRENT_JOB.update({
                 "id": job_id,
                 "active": True,
+                "cancelled": False,
                 "status": "downloading",
                 "title": (req_data.get("title") or "Hörbuch").strip(),
                 "dl_progress": 0,
@@ -929,6 +1072,9 @@ def process():
                 "dl_label": "1. Download-Fortschritt (Gesamtes Buch)",
                 "events": [],
                 "updated_at": time.time(),
+                "work_dir": None,
+                "current_subprocesses": [],
+                "target_file": None,
             })
             already_running = False
 
