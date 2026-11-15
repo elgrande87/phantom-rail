@@ -9,6 +9,7 @@ import urllib.parse
 import re
 import html
 import shutil
+import gc
 import threading
 import queue
 import time
@@ -489,11 +490,21 @@ def _run_conversion_job(job_id, req_data, output_folder):
             '-x',
             '--audio-format', 'm4a',
             '--audio-quality', '0',
+            '--format', 'bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio/best',
+            '--concurrent-fragments', '4',
+            '--buffer-size', '64K',
+            '--http-chunk-size', '10M',
             '--ignore-errors',
             '-o', f'{tmpdir}/%(playlist_index&{{:04d}}_|)s%(autonumber&{{:04d}}_|)s%(id)s.%(ext)s',
             '--newline',
             url
         ]
+        if shutil.which('aria2c'):
+            dl_cmd.extend([
+                '--external-downloader', 'aria2c',
+                '--external-downloader-args',
+                'aria2c:-x 8 -s 8 -k 1M --file-allocation=none --quiet=true'
+            ])
 
         proc = subprocess.Popen(dl_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1)
         for line in iter(proc.stdout.readline, ''):
@@ -561,6 +572,7 @@ def _run_conversion_job(job_id, req_data, output_folder):
                 })
 
         proc.wait()
+        gc.collect()
 
         downloaded = glob.glob(f"{tmpdir}/*.m4a")
         if proc.returncode != 0 and not downloaded:
@@ -606,6 +618,39 @@ def _run_conversion_job(job_id, req_data, output_folder):
         if not audio_files:
             _emit_job_event({'status': 'error', 'msg': 'Keine Audiodateien gefunden'})
             return
+
+        # yt-dlp may deliver AAC directly, or extract a non-AAC source. Keep AAC
+        # tracks untouched for fast stream-copy concatenation; normalize only
+        # non-AAC tracks so every concat input has a compatible codec/container.
+        normalized_files = []
+        for audio_idx, audio_path in enumerate(audio_files, 1):
+            probe_cmd = [
+                'ffprobe', '-v', 'error', '-select_streams', 'a:0',
+                '-show_entries', 'stream=codec_name',
+                '-of', 'default=noprint_wrappers=1:nokey=1', audio_path
+            ]
+            probe = subprocess.run(probe_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   text=True, encoding='utf-8', errors='replace')
+            codec = probe.stdout.strip().splitlines()[0].lower() if probe.stdout.strip() else ''
+            if codec == 'aac':
+                normalized_files.append(audio_path)
+                continue
+            prepared_path = os.path.join(tmpdir, f'prepared_{audio_idx:04d}.m4a')
+            _emit_job_event({
+                'status': 'processing', 'msg': f'Bereite Kapitel {audio_idx}/{len(audio_files)} vor ({codec or "unbekannter Codec"} → AAC)...',
+                'replace_line': False
+            })
+            encode_cmd = [
+                'ffmpeg', '-y', '-i', audio_path, '-vn', '-c:a', 'aac',
+                '-b:a', '128k', '-threads', '4', prepared_path
+            ]
+            encode = subprocess.run(encode_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if encode.returncode != 0:
+                detail = encode.stderr.decode('utf-8', errors='replace')[-1000:]
+                raise RuntimeError(f'AAC-Vorbereitung fehlgeschlagen ({codec or "unbekannter Codec"}): {detail}')
+            normalized_files.append(prepared_path)
+            gc.collect()
+        audio_files = normalized_files
 
         safe_title = re.sub(r'[\/\\:\*\?"<>\|]', '_', title)
         safe_title = safe_title.strip() or "Hörbuch"
@@ -782,6 +827,7 @@ def _run_conversion_job(job_id, req_data, output_folder):
                     replaced_ff_line = True
 
         ff_proc.wait()
+        gc.collect()
         if ff_proc.returncode != 0:
             retry_cmd = list(ff_cmd)
             codec_index = retry_cmd.index('-c:a')
@@ -804,6 +850,7 @@ def _run_conversion_job(job_id, req_data, output_folder):
                         'replace_line': False
                     })
             ff_proc.wait()
+            gc.collect()
             if ff_proc.returncode != 0:
                 _emit_job_event({'status': 'error', 'msg': 'FFmpeg Streamkopie und AAC-Neucodierung fehlgeschlagen'})
                 return
@@ -833,6 +880,7 @@ def _run_conversion_job(job_id, req_data, output_folder):
                     except Exception:
                         pass
         shutil.rmtree(tmpdir, ignore_errors=True)
+        gc.collect()
         with JOB_COND:
             if CURRENT_JOB.get("id") == job_id and CURRENT_JOB.get("active"):
                 CURRENT_JOB["active"] = False

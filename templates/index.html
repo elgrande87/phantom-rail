@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>phantom-rail | Audiobook & M4B Creator</title>
 <link rel="icon" type="image/svg+xml" href="/static/pasted.svg">
 <style>
@@ -167,6 +167,39 @@ button.folder-tab.active::before, .folder-tab.active::before {
 @keyframes sysRotate {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
+}
+</style>
+
+
+<style id="mobile-optimizations">
+/* Keep the complete editor usable on narrow phones without disturbing desktop. */
+#chapterList { min-width: 0; }
+#logOutput { overflow-x: auto; word-break: break-word; font-size: 12px; }
+@media (max-width: 640px) {
+  body { padding: 12px 12px calc(90px + env(safe-area-inset-bottom, 24px)); }
+  .container, main, body > div { min-width: 0; }
+  .card { min-width: 0; padding: 16px; }
+  .header-title { flex-wrap: wrap !important; align-items: flex-start !important; gap: 10px !important; }
+  .header-title > div:first-child { flex: 1 1 100%; min-width: 0; }
+  .brand-text { min-width: 0; }
+  .brand-name { white-space: nowrap; font-size: clamp(1.35rem, 7vw, 1.8rem); }
+  #sysStatusBadge { flex: 1 1 100%; width: 100%; max-width: 100%; min-width: 0; margin-left: 0 !important; box-sizing: border-box; white-space: normal !important; border-radius: 12px !important; flex-wrap: wrap; }
+  #sysStatusText, .sys-status-detail { min-width: 0; overflow-wrap: anywhere; }
+  .grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .cover-preview { max-width: 180px; max-height: 180px; }
+  input[type="text"], input[type="url"], textarea, select { min-width: 0; max-width: 100%; font-size: 16px !important; }
+  .batch-row { min-width: 0; }
+  .batch-row input[type="text"] { flex: 1 1 100% !important; width: 100%; }
+  .batch-row .btn-small { white-space: normal; text-align: left; height: auto; line-height: 1.3; }
+  .batch-toolbar > .batch-row:first-of-type { align-items: stretch; }
+  .batch-toolbar > .batch-row:first-of-type .btn-small { width: 100%; }
+  #chapterList { max-height: 42vh; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-right: 4px; }
+  .folder-tabs, #folderTabs, #folder-tabs { max-height: 210px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .folder-tab, button.folder-tab { white-space: normal !important; word-break: break-word; overflow-wrap: anywhere; text-align: left; justify-content: flex-start !important; }
+  .folder-bar { display: flex; flex-wrap: wrap; gap: 8px; }
+  .folder-bar input { flex: 1 1 100% !important; min-width: 0 !important; width: 100%; }
+  .folder-bar button { flex: 1 1 calc(50% - 4px); min-width: 0; white-space: normal; text-align: center; height: auto; }
+  #logOutput { overflow-x: auto; word-break: break-word; overflow-wrap: anywhere; font-size: 12px; }
 }
 </style>
 
