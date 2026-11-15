@@ -30,8 +30,7 @@ secrets/
 *~
 *.bak
 *.bak.*
-*.before-folders
-*.before-folders.*
+*.before-folders*
 app.py.bak*
 *.orig
 *.rej
