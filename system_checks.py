@@ -287,8 +287,6 @@ def _check_metadata_apis():
     all_ok = all(item.get("reachable", False) for item in results.values())
     return {"endpoints": results, "ok": all_ok}
 
-
-
 def _same_version(left, right):
     """Compare version labels semantically (e.g. 2026.03.03 == 2026.3.3)."""
     try:

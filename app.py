@@ -81,8 +81,6 @@ def _emit_job_event(payload):
         CURRENT_JOB["updated_at"] = time.time()
         JOB_COND.notify_all()
 
-
-
 # === AUTO-UPDATER & TOOL-STATUS BEIM START ===
 SYSTEM_STATUS_LOCK = threading.Lock()
 SYSTEM_STATUS = {
@@ -101,8 +99,6 @@ SYSTEM_STATUS = {
     "metadata_apis": {"api.audible.de": False, "api.audnex.us": False},
     "checks": {},
 }
-
-
 
 # Startup check and /system_status route are owned by system_checks.py.
 register_system_checks(app, SYSTEM_STATUS, SYSTEM_STATUS_LOCK, DOWNLOAD_FOLDER, CURRENT_JOB)
@@ -486,12 +482,15 @@ def _run_conversion_job(job_id, req_data, output_folder):
         # 1. Download
         dl_cmd = [
             'yt-dlp',
+            '--newline',
+            '--progress',
             '-x',
             '--audio-format', 'm4a',
             '--audio-quality', '0',
+            '--format', 'bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio/best',
+            '--concurrent-fragments', '4',
             '--ignore-errors',
             '-o', f'{tmpdir}/%(playlist_index&{{:04d}}_|)s%(autonumber&{{:04d}}_|)s%(id)s.%(ext)s',
-            '--newline',
             url
         ]
 
@@ -501,17 +500,18 @@ def _run_conversion_job(job_id, req_data, output_folder):
             if m_item:
                 current_item = int(m_item.group(1))
                 total_items = max(1, int(m_item.group(2)))
+                base_pct = min(100.0, max(0.0, ((current_item - 1) / max(1, total_items)) * 100.0))
+                last_overall_pct = base_pct
+                last_item_reported = current_item
                 ch_title = get_chapter_title(current_item - 1)
-                overall_pct = round(((current_item - 1) / total_items) * 100, 1)
                 _emit_job_event({
                     'status': 'downloading',
-                    'dl_progress': overall_pct,
+                    'dl_progress': round(base_pct, 1),
                     'proc_progress': 0,
-                    'progress': int(overall_pct * 0.5),
-                    'msg': f'Lade Kapitel {current_item}/{total_items}: {ch_title} (0.0%) — Gesamt: {overall_pct:.1f}%',
-                    'replace_line': False
+                    'progress': int(base_pct * 0.5),
+                    'msg': f'Lade Kapitel {current_item}/{total_items}: {ch_title} (0.0%) — Gesamt: {base_pct:.1f}%',
+                    'replace_line': True
                 })
-                last_item_reported = current_item
                 continue
 
             m = re.search(r'\[download\]\s+([\d\.]+)%', line)
