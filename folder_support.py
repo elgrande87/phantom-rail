@@ -50,11 +50,12 @@ def register_folders(app, root):
                 destination = resolve(relative)
                 os.makedirs(destination, exist_ok=False)
                 return jsonify({'folder': relative}), 201
-            result = []
-            for current, dirs, _ in os.walk(root, followlinks=False):
-                dirs[:] = sorted((d for d in dirs if not d.startswith('.') and not os.path.islink(os.path.join(current, d))), key=str.casefold)
-                for name in dirs:
-                    result.append(os.path.relpath(os.path.join(current, name), root).replace(os.sep, '/'))
+            result = [
+                d for d in os.listdir(root)
+                if not d.startswith('.')
+                and os.path.isdir(os.path.join(root, d))
+                and not os.path.islink(os.path.join(root, d))
+            ]
             return jsonify({'folders': sorted(result, key=str.casefold)})
         except FileExistsError:
             return jsonify({'error': 'Dieser Ordner existiert bereits'}), 409
