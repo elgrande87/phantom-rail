@@ -1096,5 +1096,106 @@ def process():
         }
     )
 
+
+
+# === NEXTORY integration ===
+def _nextory_service():
+    import nextory_service
+    return nextory_service
+
+@app.route('/api/nextory/status', methods=['GET'])
+def nextory_status():
+    try:
+        return jsonify(_nextory_service().status())
+    except Exception as error:
+        return jsonify({'error': str(error)}), 500
+
+@app.route('/api/nextory/login', methods=['POST'])
+def nextory_login():
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify(_nextory_service().login(data.get('username', ''), data.get('password', ''), data.get('country', 'DE')))
+    except Exception as error:
+        return jsonify({'error': str(error)}), 400
+
+@app.route('/api/nextory/select-profile', methods=['POST'])
+def nextory_select_profile():
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify(_nextory_service().select_profile(data.get('login_key', '')))
+    except Exception as error:
+        return jsonify({'error': str(error)}), 400
+
+@app.route('/api/nextory/logout', methods=['POST'])
+def nextory_logout():
+    try:
+        _nextory_service().logout()
+        return jsonify({'ok': True})
+    except Exception as error:
+        return jsonify({'error': str(error)}), 400
+
+@app.route('/api/nextory/search', methods=['GET'])
+def nextory_search():
+    try:
+        return jsonify(_nextory_service().search(request.args.get('q', '').strip()))
+    except Exception as error:
+        return jsonify({'error': str(error)}), 400
+
+@app.route('/api/nextory/library', methods=['GET'])
+def nextory_library():
+    try:
+        return jsonify(_nextory_service().library())
+    except Exception as error:
+        return jsonify({'error': str(error)}), 400
+
+@app.route('/api/nextory/book/<int:book_id>', methods=['GET'])
+def nextory_book(book_id):
+    try:
+        return jsonify(_nextory_service().book(book_id))
+    except Exception as error:
+        return jsonify({'error': str(error)}), 400
+
+def _run_nextory_job(job_id, payload, output_folder):
+    try:
+        def progress(message, percent):
+            _emit_job_event({'status': 'downloading', 'dl_progress': percent, 'proc_progress': 0,
+                             'progress': percent, 'msg': f'{message} — Gesamt: {percent:.1f}%'})
+        result = _nextory_service().download(payload, output_folder, progress)
+        _emit_job_event({'status': 'done', 'dl_progress': 100, 'proc_progress': 100,
+                         'progress': 100, 'msg': f'Nextory-Hörbuch gespeichert: {result}'})
+    except Exception as error:
+        _emit_job_event({'status': 'error', 'msg': f'Nextory-Download fehlgeschlagen: {error}'})
+    finally:
+        with JOB_COND:
+            CURRENT_JOB['work_dir'] = None
+            CURRENT_JOB['current_subprocesses'] = []
+            JOB_COND.notify_all()
+
+@app.route('/api/nextory/download', methods=['POST'])
+def nextory_download():
+    payload = request.get_json(silent=True) or {}
+    try:
+        output_folder = resolve_destination(payload.get('destination_folder', ''))
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    if not payload.get('book_id') and not payload.get('id'):
+        return jsonify({'error': 'book_id is required'}), 400
+    with JOB_COND:
+        if CURRENT_JOB.get('active'):
+            return jsonify({'error': 'Es läuft bereits ein Download-Auftrag.'}), 409
+        job_id = uuid.uuid4().hex
+        CURRENT_JOB.update({'id': job_id, 'active': True, 'cancelled': False, 'status': 'downloading',
+                            'title': (payload.get('title') or 'Nextory-Hörbuch').strip(),
+                            'dl_progress': 0, 'proc_progress': 0, 'progress': 0,
+                            'dl_label': 'Nextory-Download-Fortschritt', 'events': [],
+                            'updated_at': time.time(), 'work_dir': None,
+                            'current_subprocesses': [], 'target_file': None})
+    worker = threading.Thread(target=_run_nextory_job, args=(job_id, payload, output_folder), daemon=True)
+    worker.start()
+    return Response(_stream_current_job(job_id), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no',
+                             'Connection': 'keep-alive'})
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
