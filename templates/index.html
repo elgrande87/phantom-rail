@@ -223,6 +223,7 @@ button.folder-tab.active::before, .folder-tab.active::before {
 </div>
 <div class="input-group" style="margin-top:14px"><label for="urlInput">URL (YouTube / Playlist / SoundCloud)</label><input type="url" id="urlInput" placeholder="https://www.youtube.com/playlist?list=..." required></div>
 <button id="inspectBtn" onclick="inspectUrl()">URL prüfen & Metadaten laden</button>
+<button type="button" class="btn-small" onclick="openNextory()" style="margin-top:10px;width:100%">📚 Hörbuch aus Nextory auswählen</button>
 </div>
 <div class="card" id="detailsCard" style="display:none">
 <h2>Metadaten & Cover</h2>
@@ -245,6 +246,13 @@ button.folder-tab.active::before, .folder-tab.active::before {
 </div>
 <div id="logOutput">Warte auf Server-Rückmeldung...</div></div>
 </div>
+<div id="nextoryModal" role="dialog" aria-modal="true" aria-labelledby="nextoryTitle" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(2,6,23,.82);overflow:auto;padding:24px 12px">
+<div style="max-width:560px;margin:5vh auto;background:#1e293b;border:1px solid #475569;border-radius:14px;padding:22px;box-shadow:0 20px 50px #0009">
+<div style="display:flex;justify-content:space-between;align-items:center"><h2 id="nextoryTitle">Nextory</h2><button type="button" onclick="closeNextory()" style="width:auto;padding:7px 12px">Schließen</button></div>
+<div id="nextoryMessage" role="status" style="color:#fca5a5;margin:8px 0"></div>
+<div id="nextoryAuth"><div class="input-group"><label for="nextoryEmail">E-Mail</label><input id="nextoryEmail" type="text" autocomplete="username"></div><div class="input-group"><label for="nextoryPassword">Passwort</label><input id="nextoryPassword" type="password" autocomplete="current-password"></div><div class="input-group"><label for="nextoryCountry">Landeskürzel</label><input id="nextoryCountry" type="text" value="DE" maxlength="2"></div><button type="button" onclick="nextoryLogin()">Bei Nextory anmelden</button><div id="nextoryProfileWrap" style="display:none;margin-top:12px"><label for="nextoryProfile">Profil</label><select id="nextoryProfile" style="width:100%;padding:12px;margin:8px 0;background:#0f172a;color:#f8fafc;border:1px solid #334155;border-radius:8px"></select><button type="button" onclick="nextorySelectProfile()">Profil auswählen</button></div></div>
+<div id="nextoryBrowser" style="display:none"><div style="display:flex;gap:8px;margin:12px 0"><input id="nextoryQuery" type="text" placeholder="Titel oder Autor suchen" style="flex:1;min-width:0"><button type="button" onclick="nextorySearch()" style="width:auto">Suchen</button></div><div style="display:flex;gap:8px"><button type="button" class="btn-small" onclick="nextoryLibrary()">Meine Bibliothek</button><button type="button" class="btn-small" onclick="nextoryLogout()">Abmelden</button></div><div id="nextoryResults" style="display:grid;gap:8px;margin-top:14px;max-height:42vh;overflow:auto"></div></div>
+</div></div>
 <script>
 let globalChapters = [];
 let globalIsPlaylist = false;
@@ -744,5 +752,175 @@ document.addEventListener('visibilitychange', () => {
 });
 </script>
 <script src="/static/folders.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const api = '/api/nextory';
+  async function call(path, opts = {}) {
+    const response = await fetch(api + path, {
+      headers: { 'Content-Type': 'application/json' }, ...opts
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Request failed');
+    return data;
+  }
+  function message(text = '') { $('nextoryMessage').textContent = text; }
+  window.openNextory = async () => {
+    $('nextoryModal').style.display = 'block';
+    message('');
+    try {
+      const status = await call('/status');
+      $('nextoryAuth').style.display = status.profile_selected ? 'none' : 'block';
+      $('nextoryBrowser').style.display = status.profile_selected ? 'block' : 'none';
+    } catch (error) { message(error.message); }
+  };
+  window.closeNextory = () => { $('nextoryModal').style.display = 'none'; };
+  window.nextoryLogin = async () => {
+    try {
+      const data = await call('/login', {
+        method: 'POST', body: JSON.stringify({
+          username: $('nextoryEmail').value,
+          password: $('nextoryPassword').value,
+          country: $('nextoryCountry').value
+        })
+      });
+      if (data.profile_required || (data.profiles || []).length > 1) {
+        $('nextoryProfile').replaceChildren(...data.profiles.map(profile => {
+          const option = document.createElement('option');
+          option.value = profile.login_key;
+          option.textContent = profile.name || profile.login_key;
+          return option;
+        }));
+        $('nextoryProfileWrap').style.display = 'block';
+      } else {
+        $('nextoryAuth').style.display = 'none';
+        $('nextoryBrowser').style.display = 'block';
+      }
+      message('');
+    } catch (error) { message(error.message); }
+  };
+  window.nextorySelectProfile = async () => {
+    try {
+      await call('/select-profile', {
+        method: 'POST', body: JSON.stringify({ login_key: $('nextoryProfile').value })
+      });
+      $('nextoryProfileWrap').style.display = 'none';
+      $('nextoryAuth').style.display = 'none';
+      $('nextoryBrowser').style.display = 'block';
+      message('');
+    } catch (error) { message(error.message); }
+  };
+  function results(products) {
+    const root = $('nextoryResults');
+    root.replaceChildren();
+    products.forEach(product => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn-small';
+      const authors = (product.authors || []).map(author => author.name).filter(Boolean).join(', ');
+      button.textContent = `${product.title || 'Unbekannter Titel'}${authors ? ` — ${authors}` : ''}`;
+      button.onclick = () => selectBook(product.id || product.identifier);
+      root.append(button);
+    });
+    if (!products.length) message('Keine Titel gefunden.');
+  }
+  window.nextorySearch = async () => {
+    if (!$('nextoryQuery').value.trim()) { message('Bitte Suchbegriff eingeben.'); return; }
+    try { message('Suche läuft …'); results((await call('/search?q=' + encodeURIComponent($('nextoryQuery').value))).products || []); message(''); }
+    catch (error) { message(error.message); }
+  };
+  window.nextoryLibrary = async () => {
+    try { message('Bibliothek wird geladen …'); results((await call('/library')).products || []); message(''); }
+    catch (error) { message(error.message); }
+  };
+  async function selectBook(id) {
+    if (!id) { message('Der Titel hat keine verwendbare ID.'); return; }
+    try {
+      const data = await call('/book/' + encodeURIComponent(id));
+      const book = data.book;
+      for (const [field, key] of [
+        ['titleInput', 'title'], ['authorInput', 'authors'], ['narratorInput', 'narrators'],
+        ['descInput', 'description_full']
+      ]) {
+        const value = book[key];
+        $(field).value = Array.isArray(value)
+          ? value.map(item => typeof item === 'string' ? item : item.name).filter(Boolean).join(', ')
+          : (value || '');
+      }
+      if ($('coverUrlInput')) {
+        $('coverUrlInput').value = book.cover_url || '';
+        if (typeof updateCoverPreview === 'function') updateCoverPreview();
+      }
+      const chapterList = $('chapterList');
+      chapterList.replaceChildren();
+      data.chapters.forEach((chapter, index) => {
+        const row = document.createElement('div');
+        const number = document.createElement('span');
+        const input = document.createElement('input');
+        row.className = 'chapter-item';
+        number.className = 'chapter-num';
+        number.textContent = index + 1;
+        input.className = 'chapter-input';
+        input.value = chapter.title || `Chapter ${index + 1}`;
+        row.append(number, input);
+        chapterList.append(row);
+      });
+      $('detailsCard').style.display = 'block';
+      $('detailsCard').scrollIntoView({ behavior: 'smooth' });
+      closeNextory();
+      $('downloadBtn').onclick = () => downloadBook(id, data.chapters);
+    } catch (error) { message(error.message); }
+  }
+  async function downloadBook(id, chapters) {
+    if (activeStreamController) { alert('Ein Auftrag läuft bereits.'); return; }
+    if ($('destinationFolder') && !window.foldersReady) {
+      alert('Bitte erst die Speicherordner laden (Aktualisieren).'); return;
+    }
+    const button = $('downloadBtn');
+    button.disabled = true;
+    lastDownloadPct = 0;
+    $('progressCard').style.display = 'block';
+    $('progressCard').scrollIntoView({ behavior: 'smooth' });
+    for (const name of ['dl', 'proc']) setProgress(name, 0);
+    $('logOutput').replaceChildren();
+    appendLogLine('Starte Nextory-Download …');
+    try {
+      activeStreamController = new AbortController();
+      const response = await fetch(api + '/download', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        signal: activeStreamController.signal,
+        body: JSON.stringify({
+          book_id: id, title: $('titleInput').value.trim(),
+          author: $('authorInput').value.trim(), narrator: $('narratorInput').value.trim(),
+          chapters: chapters.map((chapter, index) => ({
+            ...chapter, title: document.querySelectorAll('.chapter-input')[index]?.value || chapter.title
+          })),
+          destination_folder: $('destinationFolder')?.value || ''
+        })
+      });
+      if (!response.ok || !response.body) {
+        let error = `HTTP ${response.status}`;
+        try { error = (await response.json()).error || error; } catch (_) {}
+        throw new Error(error);
+      }
+      const finished = await consumeEventStream(response);
+      activeStreamController = null;
+      if (!finished) scheduleReconnect();
+    } catch (error) {
+      activeStreamController = null;
+      appendLogLine('Fehler: ' + error.message, false, 'error');
+    } finally { button.disabled = false; }
+  }
+  window.nextoryLogout = async () => {
+    try {
+      await call('/logout', { method: 'POST' });
+      $('nextoryAuth').style.display = 'block';
+      $('nextoryBrowser').style.display = 'none';
+      $('nextoryResults').replaceChildren();
+      message('');
+    } catch (error) { message(error.message); }
+  };
+})();
+</script>
 </body>
 </html>
