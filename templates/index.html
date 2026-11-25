@@ -336,7 +336,7 @@ document.getElementById('lookupMetaBtn').addEventListener('click', async functio
             if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
         } else if (data.state === 'needs_update' || data.state === 'warning') {
             badge.classList.add('warning');
-            icon.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+            icon.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12.01" y1="16" x2="12.01" y2="16"/></svg>';
             text.textContent = data.message || 'Update nötig';
             if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
         } else {
@@ -886,41 +886,3 @@ document.addEventListener('visibilitychange', () => {
     appendLogLine('Starte Nextory-Download …');
     try {
       activeStreamController = new AbortController();
-      const response = await fetch(api + '/download', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        signal: activeStreamController.signal,
-        body: JSON.stringify({
-          book_id: id, title: $('titleInput').value.trim(),
-          author: $('authorInput').value.trim(), narrator: $('narratorInput').value.trim(),
-          chapters: chapters.map((chapter, index) => ({
-            ...chapter, title: document.querySelectorAll('.chapter-input')[index]?.value || chapter.title
-          })),
-          destination_folder: $('destinationFolder')?.value || ''
-        })
-      });
-      if (!response.ok || !response.body) {
-        let error = `HTTP ${response.status}`;
-        try { error = (await response.json()).error || error; } catch (_) {}
-        throw new Error(error);
-      }
-      const finished = await consumeEventStream(response);
-      activeStreamController = null;
-      if (!finished) scheduleReconnect();
-    } catch (error) {
-      activeStreamController = null;
-      appendLogLine('Fehler: ' + error.message, false, 'error');
-    } finally { button.disabled = false; }
-  }
-  window.nextoryLogout = async () => {
-    try {
-      await call('/logout', { method: 'POST' });
-      $('nextoryAuth').style.display = 'block';
-      $('nextoryBrowser').style.display = 'none';
-      $('nextoryResults').replaceChildren();
-      message('');
-    } catch (error) { message(error.message); }
-  };
-})();
-</script>
-</body>
-</html>

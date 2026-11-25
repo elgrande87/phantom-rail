@@ -1,5 +1,6 @@
 """Nextory account and audiobook integration service."""
-import asyncio, dataclasses, json, os, re, shutil, subprocess, tempfile, urllib.request
+import asyncio, dataclasses, json, os, re, shutil, subprocess, tempfile, urllib.request, threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from enum import Enum
 from nextory.client import NextoryClient
@@ -99,15 +100,27 @@ def download(data,folder,progress):
  title=data.get('title') or p['title'];safe=re.sub(r'[\\/:*?"<>|]+','_',title).strip() or 'Nextory';target=Path(folder)/f'{safe}.m4b';target.parent.mkdir(parents=True,exist_ok=True);TMP.mkdir(parents=True,exist_ok=True);work=Path(tempfile.mkdtemp(dir=TMP,prefix='nextory_'))
  try:
   listing=work/'files.txt';meta=work/'meta.txt';ff=[';FFMETADATA1',f'title={title}',f"artist={data.get('author') or ', '.join(x['name'] for x in p.get('authors',[]))}",'genre=Audiobook']
-  with listing.open('w') as lst:
+  key_cache={};key_cache_lock=threading.Lock()
+  def get_key(url):
+   # Hold the lock through the request so concurrent segments sharing a URL
+   # cannot trigger duplicate key fetches.
+   with key_cache_lock:
+    if url not in key_cache:key_cache[url]=_fetch(url,h)
+    return key_cache[url]
+  def download_segment(i,j,segment):
+   url,enc,key,iv=segment;b=_fetch(url,h);dest=work/f'{i:04}_{j:05}.aac'
+   if enc:
+    k=get_key(key);subprocess.run(['openssl','enc','-d','-aes-128-cbc','-K',k.hex(),'-iv',(iv or '0').zfill(32),'-in','-','-out',str(dest)],input=b,check=True,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+   else:dest.write_bytes(b)
+   return dest
+  with listing.open('w') as lst, ThreadPoolExecutor(max_workers=4) as executor:
    for i,f in enumerate(files):
     playlist=f['uri'].replace('/master_playlist','/media_playlist.m3u8')
-    for j,(url,enc,key,iv) in enumerate(_parse(_fetch(playlist,h),playlist)):
-     b=_fetch(url,h)
-     if enc:
-      k=_fetch(key,h);dest=work/f'{i:04}_{j:05}.aac';subprocess.run(['openssl','enc','-d','-aes-128-cbc','-K',k.hex(),'-iv',(iv or '0').zfill(32),'-in','-','-out',str(dest)],input=b,check=True,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
-     else:dest=work/f'{i:04}_{j:05}.aac';dest.write_bytes(b)
-     lst.write(f"file '{dest.as_posix()}'\n")
+    segments=_parse(_fetch(playlist,h),playlist)
+    futures=[executor.submit(download_segment,i,j,segment) for j,segment in enumerate(segments)]
+    # Resolve and list in playlist order, not completion order.
+    for future in futures:
+     dest=future.result();lst.write(f"file '{dest.as_posix()}'\n")
     ff+=['','[CHAPTER]','TIMEBASE=1/1000',f"START={f['start_at']}",f"END={f['start_at']+f['duration']}",f'title={names[i]}'];progress(f'Chapter {i+1}/{len(files)}',int((i+1)*85/max(1,len(files))))
   meta.write_text('\n'.join(ff)+'\n');audio=work/'audio.aac'
   subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','concat','-safe','0','-i',str(listing),'-c','copy','-threads','2',str(audio)],check=True,stderr=subprocess.PIPE)
