@@ -4,3 +4,4 @@ yt-dlp-ejs
 certifi
 gunicorn
 mutagen
+git+https://github.com/wagberg/nextory.git

@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     DOWNLOAD_FOLDER=/downloads \
@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1 \
     YTDLP_CHANNEL=stable \
     MIN_FREE_DISK_GB=1.5
 
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg nodejs ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg nodejs ca-certificates git openssl \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .
