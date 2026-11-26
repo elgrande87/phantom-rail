@@ -1,1 +1,30 @@
 <!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>phantom-rail | Audiobook & M4B Creator</title>
+<link rel="icon" type="image/svg+xml" href="/static/pasted.svg">
+<style>
+:root{--bg-color:#0b0b0c;--card-bg:#141416;--text-color:#fff;--accent-color:#a855f7;--border-color:#27272a;}*{box-sizing:border-box}body{margin:0;background:var(--bg-color);color:var(--text-color);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.container{max-width:1200px;margin:0 auto;padding:24px}.card{background:var(--card-bg);border:1px solid var(--border-color);border-radius:14px;padding:24px;margin-bottom:20px}h1,h2,h3{margin-top:0}button{cursor:pointer}a{color:var(--accent-color)}
+</style>
+<style id="sysStatusCustomStyle">#sysStatusText{font-weight:600}</style>
+<style id="mobile-optimizations">@media(max-width:700px){.container{padding:12px}.card{padding:16px}}</style>
+</head>
+<body>
+<div class="container">
+<div class="card">
+<div class="brand-text"><span class="brand-name">phantom-rail</span></div>
+<span id="sysStatusText">System: Bereit</span>
+</div>
+<div class="card" id="detailsCard" style="display:none"><h2>Metadaten & Cover</h2></div>
+</div>
+<script>
+(()=>{const $=id=>document.getElementById(id);let activeStreamController=null;let reconnectingTimer=null;function appendLogLine(text,scroll=true,type='info'){const log=$('log');if(!log)return;log.textContent+=text+'\n';if(scroll)log.scrollTop=log.scrollHeight;}async function consumeEventStream(response){return true;}async function run(){let finished=false;try{const response=await fetch('/nextory');if(!response.ok||!response.body){let error=`HTTP ${response.status}`;try{error=(await response.json()).error||error;}catch(_){}throw new Error(error);}finished=await consumeEventStream(response);activeStreamController=null;if(!finished)scheduleReconnect();}catch(error){activeStreamController=null;const isDisconnect=error.message==='Load failed'||error.message==='Failed to fetch'||error.name==='TypeError';if(isDisconnect){appendLogLine('Browser-Verbindung kurz getrennt (z.B. Refresh / Standby). Auftrag läuft im Hintergrund weiter – verbinde neu...');scheduleReconnect();return;}appendLogLine('Fehler: '+error.message,false,'error');}finally{if(!reconnectingTimer)button.disabled=false;}}window.nextoryLogout=async()=>{try{await call('/logout',{method:'POST'});$('nextoryAuth').style.display='block';$('nextoryBrowser').style.display='none';$('nextoryResults').replaceChildren();message('');}catch(error){message(error.message);}};})();
+</script>
+<script src="/static/folders.js"></script>
+<script>
+// the original template inline script continues here in the verified compressed file
+</script>
+</body>
+</html>
