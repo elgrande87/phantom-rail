@@ -5,26 +5,65 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>phantom-rail | Audiobook & M4B Creator</title>
 <link rel="icon" type="image/svg+xml" href="/static/pasted.svg">
-<style>
-:root{--bg-color:#0b0b0c;--card-bg:#141416;--text-color:#fff;--accent-color:#a855f7;--border-color:#27272a;}*{box-sizing:border-box}body{margin:0;background:var(--bg-color);color:var(--text-color);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.container{max-width:1200px;margin:0 auto;padding:24px}.card{background:var(--card-bg);border:1px solid var(--border-color);border-radius:14px;padding:24px;margin-bottom:20px}h1,h2,h3{margin-top:0}button{cursor:pointer}a{color:var(--accent-color)}
-</style>
-<style id="sysStatusCustomStyle">#sysStatusText{font-weight:600}</style>
-<style id="mobile-optimizations">@media(max-width:700px){.container{padding:12px}.card{padding:16px}}</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+
+
+
+
 </head>
 <body>
 <div class="container">
 <div class="card">
-<div class="brand-text"><span class="brand-name">phantom-rail</span></div>
-<span id="sysStatusText">System: Bereit</span>
+<div class="header-title" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+    <div style="display:flex; align-items:center; gap:14px;">
+        <img src="/static/pasted.svg" alt="phantom-rail Logo" class="brand-logo">
+        <div class="brand-text">
+            <span class="brand-name">phantom-rail</span>
+            <span class="brand-subtitle">Audiobook & M4B Chapter Binder</span>
+        </div>
+    </div>
+    <div id="sysStatusBadge" class="sys-status-badge" onclick="triggerSystemCheck()" title="Klicken für Update-Prüfung" style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:9999px; font-size:0.8rem; font-weight:600; cursor:pointer; background:#1e293b; color:#38bdf8; border:1px solid #334155; margin-left:auto;">
+        <span id="sysStatusIcon" class="sys-spin"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span>
+        <span id="sysStatusText">System: Bereit</span>
+        <span id="sysStatusPercent" class="sys-status-percent" aria-live="polite">0%</span>
+        <span id="sysStatusTrack" class="sys-status-track" role="progressbar" aria-label="Systemcheck-Fortschritt" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="sysStatusProgress" class="sys-status-progress"></span></span>
+    </div>
 </div>
-<div class="card" id="detailsCard" style="display:none"><h2>Metadaten & Cover</h2></div>
+<div class="input-group" style="margin-top:14px"><label for="urlInput">URL (YouTube / Playlist / SoundCloud)</label><input type="url" id="urlInput" placeholder="https://www.youtube.com/playlist?list=..." required></div>
+<button id="inspectBtn" onclick="inspectUrl()">URL prüfen & Metadaten laden</button>
+<button type="button" class="btn-small" onclick="openNextory()" style="margin-top:10px;width:100%">📚 Hörbuch aus Nextory auswählen</button>
 </div>
-<script>
-(()=>{const $=id=>document.getElementById(id);let activeStreamController=null;let reconnectingTimer=null;function appendLogLine(text,scroll=true,type='info'){const log=$('log');if(!log)return;log.textContent+=text+'\n';if(scroll)log.scrollTop=log.scrollHeight;}async function consumeEventStream(response){return true;}async function run(){let finished=false;try{const response=await fetch('/nextory');if(!response.ok||!response.body){let error=`HTTP ${response.status}`;try{error=(await response.json()).error||error;}catch(_){}throw new Error(error);}finished=await consumeEventStream(response);activeStreamController=null;if(!finished)scheduleReconnect();}catch(error){activeStreamController=null;const isDisconnect=error.message==='Load failed'||error.message==='Failed to fetch'||error.name==='TypeError';if(isDisconnect){appendLogLine('Browser-Verbindung kurz getrennt (z.B. Refresh / Standby). Auftrag läuft im Hintergrund weiter – verbinde neu...');scheduleReconnect();return;}appendLogLine('Fehler: '+error.message,false,'error');}finally{if(!reconnectingTimer)button.disabled=false;}}window.nextoryLogout=async()=>{try{await call('/logout',{method:'POST'});$('nextoryAuth').style.display='block';$('nextoryBrowser').style.display='none';$('nextoryResults').replaceChildren();message('');}catch(error){message(error.message);}};})();
-</script>
+<div class="card" id="detailsCard" style="display:none">
+<h2>Metadaten & Cover</h2>
+<div class="cover-preview-wrapper"><img id="coverPreview" class="cover-preview" src="" alt="Cover Preview"></div>
+<div class="input-group"><label for="coverUrlInput">Cover Bild URL</label><input type="text" id="coverUrlInput" oninput="updateCoverPreview()"></div>
+<div class="input-group"><label for="titleInput">Titel / Hörbuchname</label><input type="text" id="titleInput"><button type="button" id="lookupMetaBtn" class="btn-small" style="margin-top:8px">Audible Metadaten suchen</button><span id="metaLookupStatus" role="status"></span></div><div class="grid-2"><div class="input-group"><label for="authorInput">Autor</label><input type="text" id="authorInput"></div><div class="input-group"><label for="narratorInput">Sprecher / Narrator</label><input type="text" id="narratorInput"></div></div>
+<div class="grid-2"><div class="input-group"><label for="seriesInput">Serie / Reihe</label><input type="text" id="seriesInput"></div><div class="input-group"><label for="yearInput">Erscheinungsjahr</label><input type="text" id="yearInput"></div></div>
+<div class="input-group"><label for="descInput">Beschreibung</label><textarea id="descInput" rows="3"></textarea></div>
+<h3 id="chStatusLabel" style="margin-top:20px">Kapitelübersicht:</h3>
+<div class="batch-toolbar"><div style="font-size:.85rem;font-weight:bold;color:var(--primary)">Werkzeug: Kapitelnamen gleichzeitig bearbeiten</div>
+<div class="batch-row"><input type="text" id="batchFind" placeholder="Text suchen / entfernen" style="flex:2;padding:8px"><input type="text" id="batchReplace" placeholder="Ersetzen durch (leer = löschen)" style="flex:2;padding:8px"><button type="button" class="btn-small" onclick="applyBatchFindReplace()">Ausführen</button></div>
+<div class="batch-row"><button type="button" class="btn-small" onclick="removeLeadingNumbers()">🗑️ 'Kapitel 1:' / 'Track 1' entfernen</button><button type="button" class="btn-small" onclick="addLeadingNumbers()">🔢 'Kapitel 1: ...' voranstellen</button><button type="button" class="btn-small" onclick="resetChaptersToCleaned()">↺ Zurücksetzen</button></div></div>
+<div id="chapterList"></div><button id="downloadBtn" onclick="startDownload()" style="margin-top:16px">M4B Hörbuch herunterladen & erstellen</button>
+</div>
+<div class="card" id="progressCard" style="display:none"><h2>Fortschritt</h2>
+<div class="progress-box"><div class="progress-label"><span id="dlStatusLabel">1. Download-Fortschritt (Gesamtes Buch)</span><span id="dlPercent">0%</span></div><div class="progress-bar-container"><div id="dlBar" class="progress-bar"></div></div></div>
+<div class="progress-box" style="margin-top:12px"><div class="progress-label"><span>2. M4B Zusammenfügen & Kapitel schreiben</span><span id="procPercent">0%</span></div><div class="progress-bar-container"><div id="procBar" class="progress-bar" style="background:var(--success)"></div></div></div>
+<div style="margin-top:14px; display:flex; justify-content:flex-end;">
+    <button id="cancelBtn" onclick="cancelJob()" style="background:var(--danger); color:#fff; width:auto; padding:10px 18px; font-size:0.92rem; display:none;">Job abbrechen & Temp löschen</button>
+</div>
+<div id="logOutput">Warte auf Server-Rückmeldung...</div></div>
+</div>
+<div id="nextoryModal" role="dialog" aria-modal="true" aria-labelledby="nextoryTitle" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(2,6,23,.82);overflow:auto;padding:24px 12px">
+<div style="max-width:560px;margin:5vh auto;background:#1e293b;border:1px solid #475569;border-radius:14px;padding:22px;box-shadow:0 20px 50px #0009">
+<div style="display:flex;justify-content:space-between;align-items:center"><h2 id="nextoryTitle">Nextory</h2><button type="button" onclick="closeNextory()" style="width:auto;padding:7px 12px">Schließen</button></div>
+<div id="nextoryMessage" role="status" style="color:#fca5a5;margin:8px 0"></div>
+<div id="nextoryAuth"><div class="input-group"><label for="nextoryEmail">E-Mail</label><input id="nextoryEmail" type="text" autocomplete="username"></div><div class="input-group"><label for="nextoryPassword">Passwort</label><input id="nextoryPassword" type="password" autocomplete="current-password"></div><div class="input-group"><label for="nextoryCountry">Landeskürzel</label><input id="nextoryCountry" type="text" value="DE" maxlength="2"></div><button type="button" onclick="nextoryLogin()">Bei Nextory anmelden</button><div id="nextoryProfileWrap" style="display:none;margin-top:12px"><label for="nextoryProfile">Profil</label><select id="nextoryProfile" style="width:100%;padding:12px;margin:8px 0;background:#0f172a;color:#f8fafc;border:1px solid #334155;border-radius:8px"></select><button type="button" onclick="nextorySelectProfile()">Profil auswählen</button></div></div>
+<div id="nextoryBrowser" style="display:none"><div style="display:flex;gap:8px;margin:12px 0"><input id="nextoryQuery" type="text" placeholder="Titel oder Autor suchen" style="flex:1;min-width:0"><button type="button" onclick="nextorySearch()" style="width:auto">Suchen</button></div><div style="display:flex;gap:8px"><button type="button" class="btn-small" onclick="nextoryLibrary()">Meine Bibliothek</button><button type="button" class="btn-small" onclick="nextoryLogout()">Abmelden</button></div><div id="nextoryResults" style="display:grid;gap:8px;margin-top:14px;max-height:42vh;overflow:auto"></div></div>
+</div></div>
+
 <script src="/static/folders.js"></script>
-<script>
-// the original template inline script continues here in the verified compressed file
-</script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
