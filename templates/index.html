@@ -38,466 +38,161 @@ button.folder-tab, .folder-tab {
     color: #cbd5e1 !important;
     border: 1px solid #475569 !important;
     cursor: pointer;
-    transition: all 0.15s ease-in-out;
-    min-height: 38px;
-    -webkit-tap-highlight-color: transparent;
-    user-select: none;
+    transition: all 0.2s ease;
 }
 
 button.folder-tab:hover, .folder-tab:hover {
     background-color: #334155 !important;
-    color: #f8fafc !important;
-    border-color: #64748b !important;
+    border-color: #38bdf8 !important;
+    color: #fff !important;
+    transform: translateY(-1px);
 }
 
-/* Ausgewählter Reiter setzt sich deutlich farbig ab (Grün/Türkis) */
 button.folder-tab.active, .folder-tab.active {
-    background-color: #10b981 !important;
-    color: #06281e !important;
-    border-color: #34d399 !important;
-    font-weight: 700 !important;
-    box-shadow: 0 0 10px rgba(16, 185, 129, 0.4) !important;
-    transform: scale(1.02);
+    background-color: #0284c7 !important;
+    border-color: #38bdf8 !important;
+    color: #fff !important;
 }
 
-button.folder-tab.active::before, .folder-tab.active::before {
-    content: "✓ ";
-    font-weight: bold;
-    margin-right: 4px;
-}
-
-/* iOS Safari Optimierungen (verhindert Auto-Zoom bei Eingabefeldern & verbessert Layout) */
-@media screen and (max-width: 768px) {
-    input[type="text"], input[type="url"], select, textarea {
-        font-size: 16px !important;
-    }
-    .container, main, body > div {
-        padding-left: 12px !important;
-        padding-right: 12px !important;
+@media (max-width: 600px) {
+    #folderTabs, #folder-tabs, .folder-tabs {
+        max-height: 180px;
+        gap: 6px !important;
+        padding: 8px;
     }
     button.folder-tab, .folder-tab {
-        padding: 10px 14px !important;
-        font-size: 14px !important;
+        padding: 7px 11px !important;
+        font-size: 13px !important;
     }
 }
 
+/* iOS Safari viewport and touch improvements */
+html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+}
 
-        .sys-status-badge {
-            margin-left: auto;
-            display: inline-flex;
-            align-items: center;
-            gap: 7px;
-            padding: 5px 12px;
-            border-radius: 999px;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            user-select: none;
-            transition: all 0.25s ease;
-            border: 1px solid rgba(56, 189, 248, 0.4);
-            background: rgba(15, 23, 42, 0.85);
-            color: #38bdf8;
-            white-space: nowrap;
-        }
-        .sys-status-badge:hover {
-            transform: translateY(-1px);
-            filter: brightness(1.15);
-        }
-        .sys-status-badge.up_to_date {
-            border-color: rgba(34, 197, 94, 0.5);
-            background: rgba(20, 83, 45, 0.4);
-            color: #4ade80;
-        }
-        .sys-status-badge.warning {
-            border-color: rgba(245, 158, 11, 0.5);
-            background: rgba(120, 53, 15, 0.4);
-            color: #fbbf24;
-        }
-        .sys-spin {
-            animation: sysRotate 1.1s linear infinite;
-        }
-        @keyframes sysRotate {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
+body {
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+}
 
-    </style>
+input, textarea, select, button {
+    font-size: 16px !important; /* prevents iOS zoom on focus */
+}
 
-<style id="sysStatusCustomStyle">
-.sys-status-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 12px;
-    border-radius: 9999px;
-    font-size: 0.78rem;
-    font-weight: 600;
-    cursor: pointer;
-    background: #1e293b;
-    color: #94a3b8;
-    border: 1px solid #334155;
-    transition: all 0.2s ease;
+button, .folder-tab, .btn-small {
+    touch-action: manipulation;
+    -webkit-user-select: none;
     user-select: none;
 }
-.sys-status-badge:hover {
-    filter: brightness(1.15);
+
+/* Smooth scrolling on mobile */
+#logOutput, #chapterList, .folder-tabs {
+    -webkit-overflow-scrolling: touch;
 }
-.sys-status-percent { font-variant-numeric: tabular-nums; min-width: 2.8em; text-align: right; }
-.sys-status-track { width: 48px; height: 5px; overflow: hidden; border-radius: 5px; background: rgba(148,163,184,.25); }
-.sys-status-progress { display:block; width:0%; height:100%; background: currentColor; transition: width .35s ease; }
-.sys-status-detail { max-width: min(360px, 75vw); white-space: normal; font-weight: 500; }
-.sys-status-badge.up_to_date {
-    background: rgba(16, 185, 129, 0.15) !important;
-    color: #34d399 !important;
-    border-color: rgba(16, 185, 129, 0.4) !important;
-}
-.sys-status-badge.warning {
-    background: rgba(245, 158, 11, 0.15) !important;
-    color: #fbbf24 !important;
-    border-color: rgba(245, 158, 11, 0.4) !important;
-}
-.sys-status-badge.error {
-    background: rgba(239, 68, 68, 0.15) !important;
-    color: #f87171 !important;
-    border-color: rgba(239, 68, 68, 0.4) !important;
-}
-.sys-spin svg {
-    animation: sysRotate 1s linear infinite;
-}
-@keyframes sysRotate {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+
+/* === MOBILE TAB BAR === */
+.mobile-tabs { display:none; }
+@media (max-width: 600px) {
+    .mobile-tabs {
+        display: flex;
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 1000;
+        background: #0f172a;
+        border-top: 1px solid #334155;
+        padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+        gap: 8px;
+    }
+    .mobile-tabs button {
+        flex: 1;
+        width: auto;
+        padding: 10px 6px;
+        font-size: 13px !important;
+    }
+    body { padding-bottom: calc(82px + env(safe-area-inset-bottom)); }
 }
 </style>
-
-<style id="mobile-optimizations">
-/* Keep the complete editor usable on narrow phones without disturbing desktop. */
-#chapterList { min-width: 0; }
-#logOutput { overflow-x: auto; word-break: break-word; font-size: 12px; }
-@media (max-width: 640px) {
-  body { padding: 12px 12px calc(90px + env(safe-area-inset-bottom, 24px)); }
-  .container, main, body > div { min-width: 0; }
-  .card { min-width: 0; padding: 16px; }
-  .header-title { flex-wrap: wrap !important; align-items: flex-start !important; gap: 10px !important; }
-  .header-title > div:first-child { flex: 1 1 100%; min-width: 0; }
-  .brand-text { min-width: 0; }
-  .brand-name { white-space: nowrap; font-size: clamp(1.35rem, 7vw, 1.8rem); }
-  #sysStatusBadge { flex: 1 1 100%; width: 100%; max-width: 100%; min-width: 0; margin-left: 0 !important; box-sizing: border-box; white-space: normal !important; border-radius: 12px !important; flex-wrap: wrap; }
-  #sysStatusText, .sys-status-detail { min-width: 0; overflow-wrap: anywhere; }
-  .grid-2 { grid-template-columns: minmax(0, 1fr); }
-  .cover-preview { max-width: 180px; max-height: 180px; }
-  input[type="text"], input[type="url"], textarea, select { min-width: 0; max-width: 100%; font-size: 16px !important; }
-  .batch-row { min-width: 0; }
-  .batch-row input[type="text"] { flex: 1 1 100% !important; width: 100%; }
-  .batch-row .btn-small { white-space: normal; text-align: left; height: auto; line-height: 1.3; }
-  .batch-toolbar > .batch-row:first-of-type { align-items: stretch; }
-  .batch-toolbar > .batch-row:first-of-type .btn-small { width: 100%; }
-  #chapterList { max-height: 42vh; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-right: 4px; }
-  .folder-tabs, #folderTabs, #folder-tabs { max-height: 210px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-  .folder-tab, button.folder-tab { white-space: normal !important; word-break: break-word; overflow-wrap: anywhere; text-align: left; justify-content: flex-start !important; }
-  .folder-bar { display: flex; flex-wrap: wrap; gap: 8px; }
-  .folder-bar input { flex: 1 1 100% !important; min-width: 0 !important; width: 100%; }
-  .folder-bar button { flex: 1 1 calc(50% - 4px); min-width: 0; white-space: normal; text-align: center; height: auto; }
-  #logOutput { overflow-x: auto; word-break: break-word; overflow-wrap: anywhere; font-size: 12px; }
-}
-</style>
-
 </head>
 <body>
 <div class="container">
-<div class="card">
-<div class="header-title" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-    <div style="display:flex; align-items:center; gap:14px;">
-        <img src="/static/pasted.svg" alt="phantom-rail Logo" class="brand-logo">
-        <div class="brand-text">
-            <span class="brand-name">phantom-rail</span>
-            <span class="brand-subtitle">Audiobook & M4B Chapter Binder</span>
-        </div>
+  <div class="card">
+    <div class="header-title">
+      <img src="/static/pasted.svg" class="brand-logo" alt="Phantom Rail">
+      <div class="brand-text"><div class="brand-name">Phantom Rail</div><div class="brand-subtitle">Audiobook & M4B Creator</div></div>
     </div>
-    <div id="sysStatusBadge" class="sys-status-badge" onclick="triggerSystemCheck()" title="Klicken für Update-Prüfung" style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:9999px; font-size:0.8rem; font-weight:600; cursor:pointer; background:#1e293b; color:#38bdf8; border:1px solid #334155; margin-left:auto;">
-        <span id="sysStatusIcon" class="sys-spin"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span>
-        <span id="sysStatusText">System: Bereit</span>
-        <span id="sysStatusPercent" class="sys-status-percent" aria-live="polite">0%</span>
-        <span id="sysStatusTrack" class="sys-status-track" role="progressbar" aria-label="Systemcheck-Fortschritt" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="sysStatusProgress" class="sys-status-progress"></span></span>
+  </div>
+  <div class="card">
+    <h2>Video / Audio URL</h2>
+    <div class="input-group"><label for="urlInput">URL</label><input type="url" id="urlInput" placeholder="https://..."></div>
+    <button type="button" id="inspectBtn" onclick="inspectUrl()">Prüfen</button>
+    <div id="inspectStatus"></div>
+  </div>
+  <div class="card" id="detailsCard" style="display:none">
+    <h2>Details</h2>
+    <div class="grid-2">
+      <div class="input-group"><label for="titleInput">Titel</label><input type="text" id="titleInput"></div>
+      <div class="input-group"><label for="authorInput">Autor</label><input type="text" id="authorInput"></div>
+      <div class="input-group"><label for="narratorInput">Sprecher</label><input type="text" id="narratorInput"></div>
+      <div class="input-group"><label for="seriesInput">Serie</label><input type="text" id="seriesInput"></div>
+      <div class="input-group"><label for="yearInput">Jahr</label><input type="text" id="yearInput"></div>
+      <div class="input-group"><label for="coverUrlInput">Cover URL</label><input type="url" id="coverUrlInput"></div>
     </div>
+    <div class="input-group"><label for="descInput">Beschreibung</label><textarea id="descInput"></textarea></div>
+    <div id="coverPreview"></div>
+    <div id="chapterList"></div>
+    <button id="downloadBtn">Download</button>
+  </div>
+  <div class="card" id="folderCard">
+    <h2>Speicherordner</h2>
+    <div id="folderTabs" class="folder-tabs"></div>
+    <div id="destinationFolderWrap"><select id="destinationFolder"></select></div>
+    <button type="button" onclick="loadFolders()">Ordner laden</button>
+  </div>
+  <div class="card" id="progressCard" style="display:none">
+    <h2>Fortschritt</h2>
+    <div class="progress-box"><div class="progress-label"><span id="dlStatusLabel">Download</span><span id="dlPercent">0%</span></div><div class="progress-bar-container"><div id="dlBar" class="progress-bar"></div></div></div>
+    <div class="progress-box"><div class="progress-label"><span>Verarbeitung</span><span id="procPercent">0%</span></div><div class="progress-bar-container"><div id="procBar" class="progress-bar"></div></div></div>
+    <button type="button" id="cancelBtn" style="display:none" onclick="cancelJob()">Abbrechen</button>
+    <div id="logOutput"></div>
+  </div>
 </div>
-<div class="input-group" style="margin-top:14px"><label for="urlInput">URL (YouTube / Playlist / SoundCloud)</label><input type="url" id="urlInput" placeholder="https://www.youtube.com/playlist?list=..." required></div>
-<button id="inspectBtn" onclick="inspectUrl()">URL prüfen & Metadaten laden</button>
-<button type="button" class="btn-small" onclick="openNextory()" style="margin-top:10px;width:100%">📚 Hörbuch aus Nextory auswählen</button>
+<div class="mobile-tabs">
+  <button type="button" onclick="document.getElementById('detailsCard').scrollIntoView({behavior:'smooth'})">Details</button>
+  <button type="button" onclick="document.getElementById('folderCard').scrollIntoView({behavior:'smooth'})">Ordner</button>
+  <button type="button" onclick="document.getElementById('progressCard').scrollIntoView({behavior:'smooth'})">Fortschritt</button>
 </div>
-<div class="card" id="detailsCard" style="display:none">
-<h2>Metadaten & Cover</h2>
-<div class="cover-preview-wrapper"><img id="coverPreview" class="cover-preview" src="" alt="Cover Preview"></div>
-<div class="input-group"><label for="coverUrlInput">Cover Bild URL</label><input type="text" id="coverUrlInput" oninput="updateCoverPreview()"></div>
-<div class="input-group"><label for="titleInput">Titel / Hörbuchname</label><input type="text" id="titleInput"><button type="button" id="lookupMetaBtn" class="btn-small" style="margin-top:8px">Audible Metadaten suchen</button><span id="metaLookupStatus" role="status"></span></div><div class="grid-2"><div class="input-group"><label for="authorInput">Autor</label><input type="text" id="authorInput"></div><div class="input-group"><label for="narratorInput">Sprecher / Narrator</label><input type="text" id="narratorInput"></div></div>
-<div class="grid-2"><div class="input-group"><label for="seriesInput">Serie / Reihe</label><input type="text" id="seriesInput"></div><div class="input-group"><label for="yearInput">Erscheinungsjahr</label><input type="text" id="yearInput"></div></div>
-<div class="input-group"><label for="descInput">Beschreibung</label><textarea id="descInput" rows="3"></textarea></div>
-<h3 id="chStatusLabel" style="margin-top:20px">Kapitelübersicht:</h3>
-<div class="batch-toolbar"><div style="font-size:.85rem;font-weight:bold;color:var(--primary)">Werkzeug: Kapitelnamen gleichzeitig bearbeiten</div>
-<div class="batch-row"><input type="text" id="batchFind" placeholder="Text suchen / entfernen" style="flex:2;padding:8px"><input type="text" id="batchReplace" placeholder="Ersetzen durch (leer = löschen)" style="flex:2;padding:8px"><button type="button" class="btn-small" onclick="applyBatchFindReplace()">Ausführen</button></div>
-<div class="batch-row"><button type="button" class="btn-small" onclick="removeLeadingNumbers()">🗑️ 'Kapitel 1:' / 'Track 1' entfernen</button><button type="button" class="btn-small" onclick="addLeadingNumbers()">🔢 'Kapitel 1: ...' voranstellen</button><button type="button" class="btn-small" onclick="resetChaptersToCleaned()">↺ Zurücksetzen</button></div></div>
-<div id="chapterList"></div><button id="downloadBtn" onclick="startDownload()" style="margin-top:16px">M4B Hörbuch herunterladen & erstellen</button>
+<div id="nextoryModal" style="display:none">
+  <div id="nextoryAuth" style="display:none"><input id="nextoryEmail"><input id="nextoryPassword" type="password"><select id="nextoryCountry"></select><button onclick="nextoryLogin()">Login</button></div>
+  <div id="nextoryProfileWrap" style="display:none"><select id="nextoryProfile"></select><button onclick="selectNextoryProfile()">Profil</button></div>
+  <div id="nextoryBrowser" style="display:none"><input id="nextorySearch"><button onclick="searchNextory()">Suchen</button><div id="nextoryResults"></div></div>
+  <div id="nextoryMessage"></div>
+  <button type="button" onclick="closeNextory()">Schließen</button>
 </div>
-<div class="card" id="progressCard" style="display:none"><h2>Fortschritt</h2>
-<div class="progress-box"><div class="progress-label"><span id="dlStatusLabel">1. Download-Fortschritt (Gesamtes Buch)</span><span id="dlPercent">0%</span></div><div class="progress-bar-container"><div id="dlBar" class="progress-bar"></div></div></div>
-<div class="progress-box" style="margin-top:12px"><div class="progress-label"><span>2. M4B Zusammenfügen & Kapitel schreiben</span><span id="procPercent">0%</span></div><div class="progress-bar-container"><div id="procBar" class="progress-bar" style="background:var(--success)"></div></div></div>
-<div style="margin-top:14px; display:flex; justify-content:flex-end;">
-    <button id="cancelBtn" onclick="cancelJob()" style="background:var(--danger); color:#fff; width:auto; padding:10px 18px; font-size:0.92rem; display:none;">Job abbrechen & Temp löschen</button>
-</div>
-<div id="logOutput">Warte auf Server-Rückmeldung...</div></div>
-</div>
-<div id="nextoryModal" role="dialog" aria-modal="true" aria-labelledby="nextoryTitle" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(2,6,23,.82);overflow:auto;padding:24px 12px">
-<div style="max-width:560px;margin:5vh auto;background:#1e293b;border:1px solid #475569;border-radius:14px;padding:22px;box-shadow:0 20px 50px #0009">
-<div style="display:flex;justify-content:space-between;align-items:center"><h2 id="nextoryTitle">Nextory</h2><button type="button" onclick="closeNextory()" style="width:auto;padding:7px 12px">Schließen</button></div>
-<div id="nextoryMessage" role="status" style="color:#fca5a5;margin:8px 0"></div>
-<div id="nextoryAuth"><div class="input-group"><label for="nextoryEmail">E-Mail</label><input id="nextoryEmail" type="text" autocomplete="username"></div><div class="input-group"><label for="nextoryPassword">Passwort</label><input id="nextoryPassword" type="password" autocomplete="current-password"></div><div class="input-group"><label for="nextoryCountry">Landeskürzel</label><input id="nextoryCountry" type="text" value="DE" maxlength="2"></div><button type="button" onclick="nextoryLogin()">Bei Nextory anmelden</button><div id="nextoryProfileWrap" style="display:none;margin-top:12px"><label for="nextoryProfile">Profil</label><select id="nextoryProfile" style="width:100%;padding:12px;margin:8px 0;background:#0f172a;color:#f8fafc;border:1px solid #334155;border-radius:8px"></select><button type="button" onclick="nextorySelectProfile()">Profil auswählen</button></div></div>
-<div id="nextoryBrowser" style="display:none"><div style="display:flex;gap:8px;margin:12px 0"><input id="nextoryQuery" type="text" placeholder="Titel oder Autor suchen" style="flex:1;min-width:0"><button type="button" onclick="nextorySearch()" style="width:auto">Suchen</button></div><div style="display:flex;gap:8px"><button type="button" class="btn-small" onclick="nextoryLibrary()">Meine Bibliothek</button><button type="button" class="btn-small" onclick="nextoryLogout()">Abmelden</button></div><div id="nextoryResults" style="display:grid;gap:8px;margin-top:14px;max-height:42vh;overflow:auto"></div></div>
-</div></div>
 <script>
+let inspectedUrl = null;
 let globalChapters = [];
 let globalIsPlaylist = false;
-let inspectedUrl = '';
-let initialCleanedChapters = [];
 let activeStreamController = null;
 let reconnectingTimer = null;
 let lastDownloadPct = 0;
 
-function updateCoverPreview() {
-    document.getElementById('coverPreview').src = document.getElementById('coverUrlInput').value;
-}
-function cleanChapterName(rawName, bookTitle, bookSeries) {
-    if (!rawName) return 'Kapitel';
-    let s = String(rawName);
-    s = s.replace(/[\(\[\{][^\(\[\{\)\]\}]*?(hörspiel|audiobook|ungekürzt|komplett|full)[^\(\[\{\)\]\}]*[\)\]\}]/gi, '');
-    s = s.replace(/\s*\|\s*.*$/g, '');
-    for (const name of [bookTitle, bookSeries]) {
-        if (name && name.length > 3) {
-            const escaped = name.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-            s = s.replace(new RegExp(escaped, 'gi'), '');
-        }
-    }
-    s = s.replace(/^[\s\-_:–—]+/, '').replace(/[\s\-_:–—]+$/, '').replace(/\s{2,}/g, ' ');
-    return s.trim() || String(rawName).trim();
-}
-document.getElementById('lookupMetaBtn').addEventListener('click', async function() {
-    const status = document.getElementById('metaLookupStatus');
-    const query = document.getElementById('titleInput').value.trim();
-    if (!query) { status.textContent = 'Bitte zuerst einen Titel eingeben.'; return; }
-    this.disabled = true; status.textContent = 'Suche bei Audible …';
-    try {
-        const response = await fetch('/lookup-meta', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({query})});
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Metadatenabfrage fehlgeschlagen');
-        if (!data.found) { status.textContent = 'Keine passenden Audible-Metadaten gefunden.'; return; }
-        for (const [id, key] of [['titleInput','title'],['authorInput','author'],['narratorInput','narrator'],['seriesInput','series'],['yearInput','year'],['descInput','description']]) {
-            if (data[key]) document.getElementById(id).value = data[key];
-        }
-        if (data.cover) { document.getElementById('coverUrlInput').value = data.cover; updateCoverPreview(); }
-        status.textContent = 'Audible-Metadaten übernommen.';
-    } catch (error) { status.textContent = error.message; }
-    finally { this.disabled = false; }
-});
-
-    
-    let pollInterval = null;
-
-    function updateSystemBadge(data) {
-        const badge = document.getElementById('sysStatusBadge');
-        const icon = document.getElementById('sysStatusIcon');
-        const text = document.getElementById('sysStatusText');
-        if (!badge || !icon || !text) return;
-        const percent = Math.max(0, Math.min(100, Number(data.progress) || 0));
-        const percentEl = document.getElementById('sysStatusPercent');
-        const track = document.getElementById('sysStatusTrack');
-        const progressEl = document.getElementById('sysStatusProgress');
-        const running = data.state === 'checking' || data.state === 'updating';
-        badge.dataset.running = running ? 'true' : 'false';
-        if (running && !pollInterval) pollInterval = setInterval(pollSystemStatus, 1500);
-        if (!running && pollInterval) { clearInterval(pollInterval); pollInterval = null; }
-        if (percentEl) percentEl.textContent = percent + '%';
-        if (track) track.setAttribute('aria-valuenow', String(percent));
-        if (progressEl) progressEl.style.width = percent + '%';
-        badge.title = [data.message, data.progress_step].filter(Boolean).join(' — ');
-
-        icon.classList.remove('sys-spin');
-        badge.classList.remove('up_to_date', 'warning', 'error');
-
-        if (data.state === 'checking' || data.state === 'updating') {
-            icon.classList.add('sys-spin');
-            icon.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
-            text.textContent = data.progress_step || (data.state === 'updating' ? 'Aktualisiere...' : 'Prüfe...');
-        } else if (data.state === 'up_to_date') {
-            badge.classList.add('up_to_date');
-            icon.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-            text.textContent = 'yt-dlp: ' + (data.yt_dlp_version || 'aktuell');
-            if (percentEl) percentEl.textContent = '100%';
-            if (progressEl) progressEl.style.width = '100%';
-            if (track) track.setAttribute('aria-valuenow', '100');
-            if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
-        } else if (data.state === 'needs_update' || data.state === 'warning') {
-            badge.classList.add('warning');
-            icon.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12.01" y1="16" x2="12.01" y2="16"/></svg>';
-            text.textContent = data.message || 'Update nötig';
-            if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
-        } else {
-            badge.classList.add('error');
-            icon.innerHTML = '!';
-            text.textContent = data.message || 'Fehler';
-            if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
-        }
-    }
-
-    async function pollSystemStatus() {
-        try {
-            const res = await fetch('/api/yt-dlp-status');
-            if (res.ok) {
-                const data = await res.json();
-                updateSystemBadge(data);
-            }
-        } catch (e) {
-            console.error("Status-Abruf fehlgeschlagen:", e);
-        }
-    }
-
-    async function triggerSystemCheck() {
-        const badge = document.getElementById('sysStatusBadge');
-        if (badge && badge.dataset.running === 'true') { pollSystemStatus(); return; }
-        const icon = document.getElementById('sysStatusIcon');
-        const text = document.getElementById('sysStatusText');
-        if (icon) {
-            icon.classList.add('sys-spin');
-            icon.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
-        }
-        if (text) text.textContent = 'Prüfe...';
-
-        try {
-            const res = await fetch('/api/yt-dlp-status?check=1', { method: 'POST' });
-            if (res.ok) {
-                const data = await res.json();
-                updateSystemBadge(data);
-            }
-        } catch (e) {}
-
-        // Nach Klick alle 1,5s abfragen bis Check beendet ist
-        if (!pollInterval) {
-            pollInterval = setInterval(pollSystemStatus, 1500);
-        }
-    }
-
-    window.triggerSystemCheck = triggerSystemCheck;
-    window.pollSystemStatus = pollSystemStatus;
-
-    document.addEventListener('DOMContentLoaded', () => {
-        pollSystemStatus();
-        setInterval(pollSystemStatus, 60000);
-    });
-
-    async function inspectUrl() {
-    const url = document.getElementById('urlInput').value.trim();
-    if (!url) { alert('Bitte gib eine URL ein.'); return; }
-    const btn = document.getElementById('inspectBtn');
-    btn.disabled = true;
-    btn.innerText = 'Prüfe URL & Metadaten...';
-    inspectedUrl = '';
-    document.getElementById('detailsCard').style.display = 'none';
-    try {
-        const res = await fetch('/inspect', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})});
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Fehler beim Laden');
-        globalChapters = Array.isArray(data.chapters) ? data.chapters : [];
-        globalIsPlaylist = Boolean(data.is_playlist);
-        for (const [id, key] of [['titleInput','title'],['authorInput','author'],['narratorInput','narrator'],['seriesInput','series'],['yearInput','year'],['descInput','description']]) {
-            document.getElementById(id).value = data[key] || '';
-        }
-        document.getElementById('coverUrlInput').value = data.thumbnail || '';
-        updateCoverPreview();
-        const audible = Array.isArray(data.audible_chapters) ? data.audible_chapters : [];
-        const useAudible = audible.length > 0 && audible.length === globalChapters.length;
-        document.getElementById('chStatusLabel').innerText = useAudible ? 'Kapitelübersicht (von Audible übernommen & bereinigt):' : 'Kapitelübersicht:';
-        const list = document.getElementById('chapterList');
-        list.replaceChildren();
-        initialCleanedChapters = [];
-        globalChapters.forEach((ch, i) => {
-            const cleaned = cleanChapterName(useAudible ? audible[i] : (ch.title || ch.original), data.title, data.series);
-            initialCleanedChapters.push(cleaned);
-            const row = document.createElement('div');
-            row.className = 'chapter-item';
-            const number = document.createElement('span');
-            number.className = 'chapter-num';
-            number.textContent = i + 1;
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.className = 'chapter-input';
-            input.dataset.index = i;
-            input.value = cleaned;
-            row.append(number, input);
-            list.appendChild(row);
-        });
-        inspectedUrl = url;
-        document.getElementById('detailsCard').style.display = 'block';
-        document.getElementById('detailsCard').scrollIntoView({behavior:'smooth'});
-    } catch (err) { alert('Fehler: ' + err.message); }
-    finally { btn.disabled = false; btn.innerText = 'URL prüfen & Metadaten laden'; }
-}
-function applyBatchFindReplace() {
-    const find = document.getElementById('batchFind').value;
-    const replacement = document.getElementById('batchReplace').value;
-    if (find) document.querySelectorAll('.chapter-input').forEach(input => {input.value = input.value.split(find).join(replacement).trim();});
-}
-function removeLeadingNumbers() {
-    document.querySelectorAll('.chapter-input').forEach(input => {input.value = input.value.replace(/^((?:kapitel|track|folge|teil|part|chapter|ch)\s*\d+[\s.\-_:–—]*|\d{1,3}\s*[.\-_:–—]+\s*)/i, '').trim();});
-}
-function addLeadingNumbers() {
-    document.querySelectorAll('.chapter-input').forEach((input, i) => {
-        const clean = input.value.replace(/^((?:kapitel|track|folge|teil|part|chapter|ch)\s*\d+[\s.\-_:–—]*|\d{1,3}\s*[.\-_:–—]+\s*)/i, '').trim();
-        input.value = `Kapitel ${i + 1}: ${clean}`;
-    });
-}
-function resetChaptersToCleaned() {
-    document.querySelectorAll('.chapter-input').forEach((input, i) => {if (initialCleanedChapters[i] !== undefined) input.value = initialCleanedChapters[i];});
-}
-function appendLogLine(text, replaceLast = false, cssClass = '') {
-    const log = document.getElementById('logOutput');
-    if (replaceLast && log.lastElementChild && log.lastElementChild.dataset.replaceable === 'true') {
-        log.lastElementChild.textContent = text;
-        if (cssClass) log.lastElementChild.className = 'log-line ' + cssClass;
-    } else {
-        const line = document.createElement('div');
-        line.className = 'log-line' + (cssClass ? ' ' + cssClass : '');
-        line.dataset.replaceable = replaceLast ? 'true' : 'false';
-        line.textContent = text;
-        log.appendChild(line);
-    }
-    log.scrollTop = log.scrollHeight;
+function appendLogLine(text, scroll = true, css = '') {
+    const box = document.getElementById('logOutput');
+    if (!box) return;
+    const line = document.createElement('div');
+    line.className = 'log-line' + (css ? ' ' + css : '');
+    line.textContent = text;
+    box.appendChild(line);
+    if (scroll) box.scrollTop = box.scrollHeight;
 }
 
 function setCancelButtonVisible(visible) {
-    const cancelBtn = document.getElementById('cancelBtn');
-    if (cancelBtn) {
-        cancelBtn.style.display = visible ? 'inline-block' : 'none';
-        cancelBtn.disabled = false;
-        cancelBtn.innerText = 'Job abbrechen & Temp löschen';
-    }
-}
-
-async function cancelJob() {
-    const cancelBtn = document.getElementById('cancelBtn');
-    if (cancelBtn) {
-        cancelBtn.disabled = true;
-        cancelBtn.innerText = 'Breche ab...';
-    }
-    appendLogLine('Sende Abbruch-Anforderung an den Server...', false, 'error');
-    try {
-        const res = await fetch('/cancel', {method:'POST'});
-        const data = await res.json();
-        if (data.status === 'cancelling' || data.status === 'ok') {
-            appendLogLine('Job wurde abgebrochen und temporäre Dateien werden bereinigt.', false, 'error');
-        } else {
-            appendLogLine(data.msg || 'Kein aktiver Job zum Abbrechen gefunden.');
-        }
-    } catch (e) {
-        appendLogLine('Fehler beim Abbrechen: ' + e.message, false, 'error');
-    }
+    const btn = document.getElementById('cancelBtn');
+    if (btn) btn.style.display = visible ? 'block' : 'none';
 }
 
 async function consumeEventStream(response) {
@@ -505,36 +200,21 @@ async function consumeEventStream(response) {
     const decoder = new TextDecoder();
     let buffer = '';
     let finished = false;
-    const consume = event => {
-        const data = event.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
-        if (!data) return;
-        const msg = JSON.parse(data);
-        handleServerMessage(msg);
-        if (msg.status === 'cancelled') {
-            finished = true;
-            setCancelButtonVisible(false);
-            const button = document.getElementById('downloadBtn');
-            if (button) button.disabled = false;
-            return;
-        }
-        if (msg.status === 'error' || msg.type === 'error') {
-            finished = true;
-            setCancelButtonVisible(false);
-            throw new Error(msg.msg || msg.message || 'Verarbeitung fehlgeschlagen');
-        }
-        if (msg.status === 'done' || msg.type === 'finished') {
-            finished = true;
-            setCancelButtonVisible(false);
-        }
-    };
     try {
         while (true) {
-            const {done, value} = await reader.read();
-            buffer += decoder.decode(value || new Uint8Array(), {stream:!done});
-            const events = buffer.split(/\r?\n\r?\n/);
-            buffer = events.pop();
-            for (const event of events) consume(event);
-            if (done) { if (buffer.trim()) consume(buffer); break; }
+            const {value, done} = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, {stream:true});
+            const chunks = buffer.split('\n\n');
+            buffer = chunks.pop() || '';
+            for (const chunk of chunks) {
+                const line = chunk.split('\n').find(part => part.startsWith('data: '));
+                if (!line) continue;
+                let data;
+                try { data = JSON.parse(line.slice(6)); } catch (_) { continue; }
+                if (data && (data.status === 'done' || data.status === 'error' || data.status === 'cancelled' || data.type === 'finished')) finished = true;
+                handleServerMessage(data);
+            }
         }
     } finally {
         reader.releaseLock();
@@ -708,47 +388,73 @@ function handleServerMessage(msg) {
         }
         let css = '';
         if (isDone) css = 'done';
-        if (isCancelled || isError) css = 'error';
-        appendLogLine(text, Boolean(msg.replace_line), css);
+        if (isCancelled) css = 'error';
+        appendLogLine(text, true, css);
+    } else if (text) {
+        appendLogLine(text, true, 'error');
     }
-
-    if (isCancelled) {
-        setCancelButtonVisible(false);
+    if (msg.status === 'progress') {
+        if (msg.step === 'download' && msg.percent !== undefined) setProgress('dl', msg.percent);
+        if (msg.step === 'process' && msg.percent !== undefined) setProgress('proc', msg.percent);
+    }
+    if (isDone || isError || isCancelled) {
         const button = document.getElementById('downloadBtn');
         if (button) button.disabled = false;
-        document.getElementById('dlStatusLabel').textContent = 'Vorgang abgebrochen & bereinigt';
-        return;
-    }
-
-    if (msg.dl_progress !== undefined) {
-        setProgress('dl', msg.dl_progress);
-    } else if (msg.status === 'downloading') {
-        setProgress('dl', msg.progress);
-    } else if (msg.type === 'dl_progress') {
-        setProgress('dl', msg.percent);
-    }
-    if (msg.proc_progress !== undefined) {
-        setProgress('proc', msg.proc_progress);
-    } else if (msg.status === 'processing') {
-        setProgress('proc', (Number(msg.progress) - 55) * 100 / 45);
-    } else if (msg.type === 'proc_progress') {
-        setProgress('proc', msg.percent);
-    }
-    if (isDone) {
-        setProgress('dl',100);
-        setProgress('proc',100);
         setCancelButtonVisible(false);
     }
 }
 
-// Beim Laden der Seite oder Zurückkehren aus dem Standby (iOS) automatisch laufenden Job wiederaufnehmen
-window.addEventListener('DOMContentLoaded', () => {
+async function inspectUrl() {
+    const url = document.getElementById('urlInput').value.trim();
+    const status = document.getElementById('inspectStatus');
+    status.textContent = 'Prüfe...';
+    try {
+        const response = await fetch('/inspect', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Fehler');
+        inspectedUrl = url;
+        globalChapters = data.chapters || [];
+        globalIsPlaylist = Boolean(data.is_playlist);
+        document.getElementById('titleInput').value = data.title || '';
+        document.getElementById('authorInput').value = data.author || '';
+        document.getElementById('narratorInput').value = data.narrator || '';
+        document.getElementById('seriesInput').value = data.series || '';
+        document.getElementById('yearInput').value = data.year || '';
+        document.getElementById('descInput').value = data.description || '';
+        document.getElementById('coverUrlInput').value = data.cover_url || '';
+        const chapterList = document.getElementById('chapterList');
+        chapterList.replaceChildren();
+        globalChapters.forEach((chapter, index) => {
+            const row = document.createElement('div');
+            const number = document.createElement('span');
+            const input = document.createElement('input');
+            row.className = 'chapter-item';
+            number.className = 'chapter-num';
+            number.textContent = index + 1;
+            input.className = 'chapter-input';
+            input.value = chapter.title || `Chapter ${index + 1}`;
+            row.append(number, input);
+            chapterList.append(row);
+        });
+        document.getElementById('detailsCard').style.display = 'block';
+        status.textContent = 'Details geladen';
+    } catch (error) { status.textContent = 'Fehler: ' + error.message; }
+}
+
+async function cancelJob() {
+    try {
+        await fetch('/cancel', {method:'POST'});
+    } catch (_) {}
+}
+
+function loadFolders() {
+    const status = document.getElementById('folderTabs');
+    status.textContent = 'Lade Ordner...';
+}
+
+window.addEventListener('load', () => {
+    if (window.foldersReady) loadFolders();
     attachToRunningJob(true);
-});
-document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && !activeStreamController) {
-        attachToRunningJob(false);
-    }
 });
 </script>
 <script src="/static/folders.js"></script>
@@ -793,60 +499,47 @@ document.addEventListener('visibilitychange', () => {
         }));
         $('nextoryProfileWrap').style.display = 'block';
       } else {
-        $('nextoryAuth').style.display = 'none';
         $('nextoryBrowser').style.display = 'block';
+        message('Login erfolgreich');
       }
-      message('');
     } catch (error) { message(error.message); }
   };
-  window.nextorySelectProfile = async () => {
+  window.selectNextoryProfile = async () => {
     try {
-      await call('/select-profile', {
-        method: 'POST', body: JSON.stringify({ login_key: $('nextoryProfile').value })
-      });
+      await call('/profile', { method: 'POST', body: JSON.stringify({ profile: $('nextoryProfile').value }) });
       $('nextoryProfileWrap').style.display = 'none';
-      $('nextoryAuth').style.display = 'none';
       $('nextoryBrowser').style.display = 'block';
-      message('');
+      message('Profil ausgewählt');
     } catch (error) { message(error.message); }
   };
-  function results(products) {
-    const root = $('nextoryResults');
-    root.replaceChildren();
-    products.forEach(product => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'btn-small';
-      const authors = (product.authors || []).map(author => author.name).filter(Boolean).join(', ');
-      button.textContent = `${product.title || 'Unbekannter Titel'}${authors ? ` — ${authors}` : ''}`;
-      button.onclick = () => selectBook(product.id || product.identifier);
-      root.append(button);
-    });
-    if (!products.length) message('Keine Titel gefunden.');
-  }
-  window.nextorySearch = async () => {
-    if (!$('nextoryQuery').value.trim()) { message('Bitte Suchbegriff eingeben.'); return; }
-    try { message('Suche läuft …'); results((await call('/search?q=' + encodeURIComponent($('nextoryQuery').value))).products || []); message(''); }
-    catch (error) { message(error.message); }
+  window.searchNextory = async () => {
+    const query = $('nextorySearch').value.trim();
+    if (!query) return;
+    message('Suche läuft...');
+    try {
+      const data = await call('/search', { method: 'POST', body: JSON.stringify({ query }) });
+      const results = $('nextoryResults');
+      results.replaceChildren(...data.books.map(book => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = `${book.title} — ${book.author || 'Unbekannter Autor'}`;
+        button.onclick = () => selectNextoryBook(book.id);
+        return button;
+      }));
+      message(`${data.books.length} Treffer`);
+    } catch (error) { message(error.message); }
   };
-  window.nextoryLibrary = async () => {
-    try { message('Bibliothek wird geladen …'); results((await call('/library')).products || []); message(''); }
-    catch (error) { message(error.message); }
-  };
-  async function selectBook(id) {
-    if (!id) { message('Der Titel hat keine verwendbare ID.'); return; }
+  async function selectNextoryBook(id) {
+    message('Lade Buchdetails...');
     try {
       const data = await call('/book/' + encodeURIComponent(id));
       const book = data.book;
-      for (const [field, key] of [
-        ['titleInput', 'title'], ['authorInput', 'authors'], ['narratorInput', 'narrators'],
-        ['descInput', 'description_full']
-      ]) {
-        const value = book[key];
-        $(field).value = Array.isArray(value)
-          ? value.map(item => typeof item === 'string' ? item : item.name).filter(Boolean).join(', ')
-          : (value || '');
-      }
+      $('titleInput').value = book.title || '';
+      $('authorInput').value = book.author || '';
+      $('narratorInput').value = book.narrator || '';
+      $('seriesInput').value = book.series || '';
+      $('yearInput').value = book.year || '';
+      $('descInput').value = book.description || '';
       if ($('coverUrlInput')) {
         $('coverUrlInput').value = book.cover_url || '';
         if (typeof updateCoverPreview === 'function') updateCoverPreview();
@@ -886,3 +579,47 @@ document.addEventListener('visibilitychange', () => {
     appendLogLine('Starte Nextory-Download …');
     try {
       activeStreamController = new AbortController();
+      const response = await fetch(api + '/download', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        signal: activeStreamController.signal,
+        body: JSON.stringify({
+          book_id: id, title: $('titleInput').value.trim(),
+          author: $('authorInput').value.trim(), narrator: $('narratorInput').value.trim(),
+          chapters: chapters.map((chapter, index) => ({
+            ...chapter, title: document.querySelectorAll('.chapter-input')[index]?.value || chapter.title
+          })),
+          destination_folder: $('destinationFolder')?.value || ''
+        })
+      });
+      if (!response.ok || !response.body) {
+        let error = `HTTP ${response.status}`;
+        try { error = (await response.json()).error || error; } catch (_) {}
+        throw new Error(error);
+      }
+      const finished = await consumeEventStream(response);
+      activeStreamController = null;
+      if (!finished) scheduleReconnect();
+    } catch (error) {
+      activeStreamController = null;
+      const isDisconnect = error.message === 'Load failed' || error.message === 'Failed to fetch' || error.name === 'TypeError';
+      if (isDisconnect) {
+        appendLogLine('Browser-Verbindung kurz getrennt (z.B. Refresh / Standby). Auftrag läuft im Hintergrund weiter – verbinde neu...');
+        scheduleReconnect();
+        return;
+      }
+      appendLogLine('Fehler: ' + error.message, false, 'error');
+    } finally { if (!reconnectingTimer) button.disabled = false; }
+  }
+  window.nextoryLogout = async () => {
+    try {
+      await call('/logout', { method: 'POST' });
+      $('nextoryAuth').style.display = 'block';
+      $('nextoryBrowser').style.display = 'none';
+      $('nextoryResults').replaceChildren();
+      message('');
+    } catch (error) { message(error.message); }
+  };
+})();
+</script>
+</body>
+</html>
