@@ -1,130 +1,65 @@
-"""Nextory account and audiobook integration service."""
-import asyncio, dataclasses, json, os, re, shutil, subprocess, tempfile, urllib.request, threading, time
-from concurrent.futures import ThreadPoolExecutor
+import os, re, json, shutil, subprocess, tempfile, requests
 from pathlib import Path
-from enum import Enum
-from nextory.client import NextoryClient
-from nextory.models import LibraryListType
+from urllib.parse import urljoin
+from concurrent.futures import ThreadPoolExecutor
 
-try:
- import requests
- from requests.adapters import HTTPAdapter
- _HTTP_SESSION=requests.Session()
- _HTTP_SESSION.mount('http://',HTTPAdapter(pool_connections=16,pool_maxsize=16))
- _HTTP_SESSION.mount('https://',HTTPAdapter(pool_connections=16,pool_maxsize=16))
-except ImportError:
- _HTTP_SESSION=None
-CONFIG=Path(os.environ.get('DOWNLOAD_FOLDER','/downloads'))/'.nextory_config.json'
-TMP=Path(os.environ.get('DOWNLOAD_FOLDER','/downloads'))/'.tmp_work'
-def _load():
- try:return json.loads(CONFIG.read_text())
- except (OSError,ValueError):return {}
-def _save(d):
- CONFIG.parent.mkdir(parents=True,exist_ok=True); p=CONFIG.with_suffix('.tmp');p.write_text(json.dumps(d));os.chmod(p,0o600);p.replace(CONFIG)
-def _plain(v):
- if dataclasses.is_dataclass(v):return {k:_plain(x) for k,x in dataclasses.asdict(v).items()}
- if isinstance(v,Enum):return v.value
- if isinstance(v,list):return [_plain(x) for x in v]
- if isinstance(v,dict):return {k:_plain(x) for k,x in v.items()}
- if hasattr(v,'isoformat'):return v.isoformat()
- return v
-def _client(c):
- def updated(a,b):
-  n=_load();n.update({k:v for k,v in c.items() if k not in ('login_token','profile_token')});n['login_token']=a or n.get('login_token');n['profile_token']=b or n.get('profile_token');_save(n)
- return NextoryClient(login_token=c.get('login_token'),profile_token=c.get('profile_token'),login_key=c.get('login_key'),username=c.get('username'),country=c.get('country'),device_id=c.get('device_id'),on_tokens_updated=updated)
-def _run(f):return asyncio.run(f)
-def status():
- c=_load();return {'logged_in':bool(c.get('login_token')),'profile_selected':bool(c.get('profile_token')),'username':c.get('username',''),'country':c.get('country','DE')}
-def login(username,password,country='DE'):
- if not username or not password:raise ValueError('Email and password required')
- c={'username':username,'country':country.upper()}
- async def go():
-  async with _client(c) as x:
-   c['device_id']=x.device_id;c['login_token']=await x.login(username,password);return _plain((await x.get_profiles()).profiles)
- profiles=_run(go());c['profiles']=profiles;_save(c)
- return select_profile(profiles[0]['login_key']) if len(profiles)==1 else {'profiles':profiles,'profile_required':True}
-def select_profile(login_key):
- c=_load()
- if not c.get('login_token'):raise ValueError('Login required')
- async def go():
-  async with _client(c) as x:
-   c['profile_token']=await x.select_profile(login_key);c['login_key']=login_key;return _plain((await x.get_profiles()).profiles)
- profiles=_run(go());c['profiles']=profiles;_save(c);return {'logged_in':True,'profile_selected':True,'profiles':profiles}
-def logout():
- c=_load()
- if c.get('login_token'):
-  async def go():
-   async with _client(c) as x:await x.logout()
-  _run(go())
- CONFIG.unlink(missing_ok=True)
-def _auth():
- c=_load()
- if not c.get('profile_token'):raise ValueError('Choose Nextory profile first')
- return c
-def _product(p):
- d=_plain(p);d['cover_url']=next((f.get('img_url') for f in d.get('formats',[]) if f.get('img_url')),'');return d
-def search(phrase):
- c=_auth()
- async def go():
-  async with _client(c) as x:return _plain((await x.search_books(phrase,per=30)).products)
- return {'products':[_product(x) for x in _run(go())]}
-def library():
- c=_auth()
- async def go():
-  async with _client(c) as x:
-   lists=(await x.get_libraries()).product_lists;out=[]
-   for typ in (LibraryListType.ONGOING,LibraryListType.WANT_TO_READ):
-    item=next((z for z in lists if z.type==typ),None)
-    if item:out.extend(_plain((await x.get_library(typ,item.id,per=50)).products))
-   return out
- return {'products':[_product(x) for x in _run(go())]}
-def _details(book_id):
- c=_auth()
- async def go():
-  async with _client(c) as x:
-   p=await x.get_product_details(book_id);f=next((f for f in p.formats if str(f.type).lower().endswith('hls')),None)
-   if f is None:raise ValueError('No HLS audio format')
-   return _plain(p),_plain(await x.get_audio_package(f.identifier)),x.auth_headers,f.identifier
- return _run(go())
-def book(book_id):
- p,a,h,f=_details(book_id);return {'book':_product(p),'format_id':f,'chapters':[{'title':x.get('title') or f'Chapter {i+1}','start_at':x['start_at'],'duration':x['duration']} for i,x in enumerate(a['files'])]}
+BASE='https://api.nextory.com'
+
+def _plain(x):
+ if isinstance(x,dict):
+  if 'data' in x and isinstance(x['data'],dict):return x['data']
+  return x
+ return {}
 def _fetch(url,h):
- if _HTTP_SESSION is not None:
-  response=_HTTP_SESSION.get(url,headers=h,timeout=60);response.raise_for_status();return response.content
- with urllib.request.urlopen(urllib.request.Request(url,headers=h),timeout=60) as r:return r.read()
-def _parse(data,base):
- seq=0;enc=False;key=None;iv=None;out=[]
- for line in data.decode('utf8','replace').splitlines():
+ r=requests.get(url,headers=h,timeout=60);r.raise_for_status();return r.content
+def _parse(text,base):
+ key=None;iv=None
+ for line in text.splitlines():
   line=line.strip()
-  if line.startswith('#EXT-X-MEDIA-SEQUENCE:'):
-   try:seq=int(line.split(':',1)[1])
-   except ValueError:pass
-  elif line.startswith('#EXT-X-KEY'):
-   enc='METHOD=AES-128' in line
-   if enc:
-    m=re.search(r'URI="([^"]+)"',line);key=urllib.request.urljoin(base,m.group(1)) if m else None
-    m=re.search(r'IV=0x([0-9a-fA-F]+)',line);iv=m.group(1) if m else None
-  elif line and not line.startswith('#'):out.append((urllib.request.urljoin(base,line),enc,key,iv or (f'{seq:032x}' if enc else None)));seq+=1
- return out
-def download(data,folder,progress):
- p,a,h,_=_details(int(data.get('book_id') or data.get('id')));files=a['files'];names=[x.get('title') or f'Chapter {i+1}' for i,x in enumerate(files)];names=[(data.get('chapters') or [{}]*len(files))[i].get('title') or names[i] for i in range(len(files))]
- title=data.get('title') or p['title'];safe=re.sub(r'[\\/:*?"<>|]+','_',title).strip() or 'Nextory';target=Path(folder)/f'{safe}.m4b';target.parent.mkdir(parents=True,exist_ok=True);TMP.mkdir(parents=True,exist_ok=True);work=Path(tempfile.mkdtemp(dir=TMP,prefix='nextory_'))
+  if line.startswith('#EXT-X-KEY:'):
+   m=re.search(r'URI="([^"]+)"',line);key=urljoin(base,m.group(1)) if m else None
+   m=re.search(r'IV=0x([0-9a-fA-F]+)',line);iv=m.group(1) if m else None
+  elif line and not line.startswith('#'):yield urljoin(base,line),key,iv
+
+def _title(x):return re.sub(r'[\\/:*?"<>|]+','_',str(x or 'Untitled')).strip() or 'Untitled'
+
+def get_book(book_id,token):
+ h={'Authorization':f'Bearer {token}','Accept':'application/json'}
+ for u in (f'{BASE}/v1/books/{book_id}',f'{BASE}/books/{book_id}'):
+  r=requests.get(u,headers=h,timeout=30)
+  if r.ok:
+   d=_plain(r.json());d['cover_url']=next((f.get('img_url') for f in d.get('formats',[]) if f.get('img_url')),'');return d
+ r.raise_for_status()
+
+def download_book(book_id,token,output_dir,progress=lambda *a,**k:None):
+ h={'Authorization':f'Bearer {token}','Accept':'application/json'};p=get_book(book_id,token);formats=p.get('formats') or []
+ if not formats:raise ValueError('No audio formats found')
+ f=formats[0];source=f.get('url') or f.get('download_url') or f.get('manifest_url')
+ if not source:raise ValueError('No audio manifest found')
+ if source.startswith('/'):source=BASE+source
+ r=requests.get(source,headers=h,timeout=30);r.raise_for_status();text=r.text
+ files=[]
+ for line in text.splitlines():
+  if line.startswith('#EXTINF:'):
+   try:duration=float(line.split(':',1)[1].split(',',1)[0])
+   except Exception:duration=0
+  elif line and not line.startswith('#'):
+   files.append({'uri':urljoin(source,line),'duration':int(duration*1000),'start_at':sum(x['duration'] for x in files)})
+ if not files:raise ValueError('No audio segments found')
+ title=_title(p.get('title') or p.get('name') or book_id);out=Path(output_dir);out.mkdir(parents=True,exist_ok=True);target=out/f'{title}.m4b'
+ work=Path(tempfile.mkdtemp(prefix='nextory_'));listing=work/'files.txt';meta=work/'metadata.txt';ff=[';FFMETADATA1']
+ for k,v in [('title',p.get('title') or title),('artist',p.get('author') or p.get('artist') or ''),('album',p.get('title') or title)]:
+  if v:ff.append(f'{k}={str(v).replace("\\\\", "\\\\\\\\").replace("=", "\\\\=").replace(";", "\\\\;").replace("#", "\\\\#").replace("\n", " ")}')
+ names=[]
+ for i,x in enumerate(files):names.append(x.get('title') or f'Chapter {i+1}')
+ def download_segment(i,j,segment):
+  url,enc,key,iv=segment;b=_fetch(url,h)
+  if enc:
+   k=_fetch(key,h);dest=work/f'{i:04}_{j:05}.aac';subprocess.run(['openssl','enc','-d','-aes-128-cbc','-K',k.hex(),'-iv',(iv or '0').zfill(32),'-in','-','-out',str(dest)],input=b,check=True,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+  else:dest=work/f'{i:04}_{j:05}.aac';dest.write_bytes(b)
+  return dest
  try:
-  listing=work/'files.txt';meta=work/'meta.txt';ff=[';FFMETADATA1',f'title={title}',f"artist={data.get('author') or ', '.join(x['name'] for x in p.get('authors',[]))}",'genre=Audiobook']
-  key_cache={};key_cache_lock=threading.Lock()
-  def get_key(url):
-   with key_cache_lock:
-    if url not in key_cache:key_cache[url]=_fetch(url,h)
-    return key_cache[url]
-  def download_segment(i,j,segment):
-   url,enc,key,iv=segment;b=_fetch(url,h);dest=work/f'{i:04}_{j:05}.aac'
-   if enc:
-    k=get_key(key);subprocess.run(['openssl','enc','-d','-aes-128-cbc','-K',k.hex(),'-iv',(iv or '0').zfill(32),'-in','-','-out',str(dest)],input=b,check=True,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
-   else:dest.write_bytes(b)
-   return dest
-  try:workers=max(1,int(os.environ.get('NEXTORY_WORKERS','8')))
-  except (TypeError,ValueError):workers=8
-  with listing.open('w') as lst, ThreadPoolExecutor(max_workers=workers) as executor:
+  with listing.open('w') as lst, ThreadPoolExecutor(max_workers=max(1,int(os.environ.get('NEXTORY_WORKERS','8')))) as executor:
    for i,f in enumerate(files):
     playlist=f['uri'].replace('/master_playlist','/media_playlist.m3u8');segments=_parse(_fetch(playlist,h),playlist);futures=[executor.submit(download_segment,i,j,segment) for j,segment in enumerate(segments)]
     for future in futures:
@@ -144,30 +79,21 @@ def download(data,folder,progress):
   cmd=['ffmpeg','-hide_banner','-loglevel','error','-y','-f','concat','-safe','0','-i',str(listing),'-i',str(meta)]
   if cover_path:cmd+=['-i',str(cover_path)]
   cmd+=['-map','0:a:0','-map_metadata','1','-map_chapters','1']
-  if cover_path:cmd+=['-map','2:v:0','-disposition:v:0','attached_pic']
-  cmd+=['-c','copy','-bsf:a','aac_adtstoasc','-movflags','+faststart','-threads','0','-progress','pipe:1','-nostats',str(target)]
+  if cover_path:cmd+=['-map','2:v:0','-disposition:v:0','attached_pic','-c:v','mjpeg']
+  cmd+=['-c:a','copy','-bsf:a','aac_adtstoasc','-movflags','+faststart','-threads','0','-progress','pipe:1','-nostats',str(target)]
   proc=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,encoding='utf-8',errors='replace',bufsize=1)
   last_status=0.0;last_status_pct=15;last_percent=15;stats={}
   for line in iter(proc.stdout.readline,''):
    if '=' not in line:continue
    key,value=line.strip().split('=',1);stats[key]=value
    if key not in ('out_time_us','out_time_ms','speed','total_size','progress'):continue
-   try:raw_time=int(stats.get('out_time_us') or stats.get('out_time_ms') or 0)
-   except ValueError:raw_time=0
-   # FFmpeg labels both out_time_us and out_time_ms in microseconds.
-   ratio=min(1.0,max(0.0,(raw_time/1000.0)/duration_ms)) if duration_ms>0 else 0.0
-   pct=min(99,15+int(ratio*84));last_percent=max(last_percent,pct);now=time.monotonic()
-   if now-last_status>=1.5 or (last_percent-last_status_pct>=2 and now-last_status>=0.5):
-    elapsed=max(0,raw_time/1_000_000);parts=[f'{int(elapsed//3600):02d}:{int(elapsed%3600//60):02d}:{int(elapsed%60):02d}']
-    if stats.get('speed') and stats['speed']!='N/A':parts.append(stats['speed'])
-    try:
-     size=int(stats.get('total_size','0'))
-     if size>0:parts.append(f'{size/1024/1024:.1f} MiB')
-    except ValueError:pass
-    progress(f"FFmpeg: {' · '.join(parts)}",pct,phase='processing');last_status=now;last_status_pct=pct
-  proc.wait()
-  if proc.returncode:
-   stderr=proc.stderr.read().strip()
-   raise RuntimeError(f'FFmpeg failed with exit status {proc.returncode}: {stderr or "No error output captured"}') from subprocess.CalledProcessError(proc.returncode,cmd,stderr=stderr)
+   if key=='progress' and value=='end':last_status=1.0
+   if key in ('out_time_us','out_time_ms'):
+    try:last_status=min(1.0,int(value)/1000000/max(1,duration_ms/1000))
+    except Exception:pass
+   pct=15+int(last_status*80)
+   if pct>=last_status_pct+2:progress('Erzeuge M4B…',pct,phase='processing');last_status_pct=pct
+  err=proc.stderr.read();code=proc.wait()
+  if code:raise RuntimeError(err or f'ffmpeg exited {code}')
   progress('M4B fertiggestellt',100,phase='processing');return str(target)
  finally:shutil.rmtree(work,ignore_errors=True)
