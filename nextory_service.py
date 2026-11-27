@@ -145,7 +145,7 @@ def download(data,folder,progress):
   if cover_path:cmd+=['-i',str(cover_path)]
   cmd+=['-map','0:a:0','-map_metadata','1','-map_chapters','1']
   if cover_path:cmd+=['-map','2:v:0','-disposition:v:0','attached_pic']
-  cmd+=['-c','copy','-movflags','+faststart','-threads','0','-progress','pipe:1','-nostats',str(target)]
+  cmd+=['-c','copy','-bsf:a','aac_adtstoasc','-movflags','+faststart','-threads','0','-progress','pipe:1','-nostats',str(target)]
   proc=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,encoding='utf-8',errors='replace',bufsize=1)
   last_status=0.0;last_status_pct=15;last_percent=15;stats={}
   for line in iter(proc.stdout.readline,''):
@@ -166,6 +166,8 @@ def download(data,folder,progress):
     except ValueError:pass
     progress(f"FFmpeg: {' · '.join(parts)}",pct,phase='processing');last_status=now;last_status_pct=pct
   proc.wait()
-  if proc.returncode:raise subprocess.CalledProcessError(proc.returncode,cmd,stderr=proc.stderr.read())
+  if proc.returncode:
+   stderr=proc.stderr.read().strip()
+   raise RuntimeError(f'FFmpeg failed with exit status {proc.returncode}: {stderr or "No error output captured"}') from subprocess.CalledProcessError(proc.returncode,cmd,stderr=stderr)
   progress('M4B fertiggestellt',100,phase='processing');return str(target)
  finally:shutil.rmtree(work,ignore_errors=True)
