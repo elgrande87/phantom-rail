@@ -1,5 +1,5 @@
 """Nextory account and audiobook integration service."""
-import asyncio, dataclasses, json, os, re, shutil, subprocess, tempfile, urllib.request, threading
+import asyncio, dataclasses, json, os, re, shutil, subprocess, tempfile, urllib.request, threading, time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from enum import Enum
@@ -90,9 +90,7 @@ def book(book_id):
  p,a,h,f=_details(book_id);return {'book':_product(p),'format_id':f,'chapters':[{'title':x.get('title') or f'Chapter {i+1}','start_at':x['start_at'],'duration':x['duration']} for i,x in enumerate(a['files'])]}
 def _fetch(url,h):
  if _HTTP_SESSION is not None:
-  response=_HTTP_SESSION.get(url,headers=h,timeout=60)
-  response.raise_for_status()
-  return response.content
+  response=_HTTP_SESSION.get(url,headers=h,timeout=60);response.raise_for_status();return response.content
  with urllib.request.urlopen(urllib.request.Request(url,headers=h),timeout=60) as r:return r.read()
 def _parse(data,base):
  seq=0;enc=False;key=None;iv=None;out=[]
@@ -115,7 +113,6 @@ def download(data,folder,progress):
   listing=work/'files.txt';meta=work/'meta.txt';ff=[';FFMETADATA1',f'title={title}',f"artist={data.get('author') or ', '.join(x['name'] for x in p.get('authors',[]))}",'genre=Audiobook']
   key_cache={};key_cache_lock=threading.Lock()
   def get_key(url):
-   # Keep one fetch in flight for each key URL, even when segments share it.
    with key_cache_lock:
     if url not in key_cache:key_cache[url]=_fetch(url,h)
     return key_cache[url]
@@ -129,17 +126,46 @@ def download(data,folder,progress):
   except (TypeError,ValueError):workers=8
   with listing.open('w') as lst, ThreadPoolExecutor(max_workers=workers) as executor:
    for i,f in enumerate(files):
-    playlist=f['uri'].replace('/master_playlist','/media_playlist.m3u8')
-    segments=_parse(_fetch(playlist,h),playlist)
-    futures=[executor.submit(download_segment,i,j,segment) for j,segment in enumerate(segments)]
-    # Resolve futures in playlist order to preserve exact audio concatenation.
+    playlist=f['uri'].replace('/master_playlist','/media_playlist.m3u8');segments=_parse(_fetch(playlist,h),playlist);futures=[executor.submit(download_segment,i,j,segment) for j,segment in enumerate(segments)]
     for future in futures:
      dest=future.result();lst.write(f"file '{dest.as_posix()}'\n")
     ff+=['','[CHAPTER]','TIMEBASE=1/1000',f"START={f['start_at']}",f"END={f['start_at']+f['duration']}",f'title={names[i]}'];progress(f'Chapter {i+1}/{len(files)}',int((i+1)*100/max(1,len(files))),phase='downloading')
-  meta.write_text('\n'.join(ff)+'\n');audio=work/'audio.aac'
-  progress('Füge Audiodateien zusammen…',15,phase='processing')
-  subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','concat','-safe','0','-i',str(listing),'-c','copy','-threads','2',str(audio)],check=True,stderr=subprocess.PIPE)
-  progress('Schreibe M4B & Kapitelmarken…',65,phase='processing')
-  subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-y','-i',str(audio),'-i',str(meta),'-map','0:a:0','-map_metadata','1','-map_chapters','1','-c:a','copy','-threads','2',str(target)],check=True,stderr=subprocess.PIPE)
+  meta.write_text('\n'.join(ff)+'\n')
+  # Optional artwork is a distinct input. Concat audio, global metadata, and
+  # chapters are mapped together directly to the M4B in one FFmpeg run.
+  cover_url=data.get('cover_url') or next((x.get('img_url') for x in p.get('formats',[]) if x.get('img_url')),'')
+  cover_path=None
+  if cover_url:
+   try:
+    cover_path=work/'cover';cover_path.write_bytes(_fetch(cover_url,h))
+   except Exception:cover_path=None
+  duration_ms=max((int(x.get('start_at',0) or 0)+int(x.get('duration',0) or 0) for x in files),default=0)
+  progress('Muxe Audio & Kapitel in einer FFmpeg-Passage…',15,phase='processing')
+  cmd=['ffmpeg','-hide_banner','-loglevel','error','-y','-f','concat','-safe','0','-i',str(listing),'-i',str(meta)]
+  if cover_path:cmd+=['-i',str(cover_path)]
+  cmd+=['-map','0:a:0','-map_metadata','1','-map_chapters','1']
+  if cover_path:cmd+=['-map','2:v:0','-disposition:v:0','attached_pic']
+  cmd+=['-c','copy','-movflags','+faststart','-threads','0','-progress','pipe:1','-nostats',str(target)]
+  proc=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,encoding='utf-8',errors='replace',bufsize=1)
+  last_status=0.0;last_status_pct=15;last_percent=15;stats={}
+  for line in iter(proc.stdout.readline,''):
+   if '=' not in line:continue
+   key,value=line.strip().split('=',1);stats[key]=value
+   if key not in ('out_time_us','out_time_ms','speed','total_size','progress'):continue
+   try:raw_time=int(stats.get('out_time_us') or stats.get('out_time_ms') or 0)
+   except ValueError:raw_time=0
+   # FFmpeg labels both out_time_us and out_time_ms in microseconds.
+   ratio=min(1.0,max(0.0,(raw_time/1000.0)/duration_ms)) if duration_ms>0 else 0.0
+   pct=min(99,15+int(ratio*84));last_percent=max(last_percent,pct);now=time.monotonic()
+   if now-last_status>=1.5 or (last_percent-last_status_pct>=2 and now-last_status>=0.5):
+    elapsed=max(0,raw_time/1_000_000);parts=[f'{int(elapsed//3600):02d}:{int(elapsed%3600//60):02d}:{int(elapsed%60):02d}']
+    if stats.get('speed') and stats['speed']!='N/A':parts.append(stats['speed'])
+    try:
+     size=int(stats.get('total_size','0'))
+     if size>0:parts.append(f'{size/1024/1024:.1f} MiB')
+    except ValueError:pass
+    progress(f"FFmpeg: {' · '.join(parts)}",pct,phase='processing');last_status=now;last_status_pct=pct
+  proc.wait()
+  if proc.returncode:raise subprocess.CalledProcessError(proc.returncode,cmd,stderr=proc.stderr.read())
   progress('M4B fertiggestellt',100,phase='processing');return str(target)
  finally:shutil.rmtree(work,ignore_errors=True)
