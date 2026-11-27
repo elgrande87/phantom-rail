@@ -108,7 +108,7 @@ def _parse(data,base):
  return out
 def download(data,folder,progress):
  p,a,h,_=_details(int(data.get('book_id') or data.get('id')));files=a['files'];names=[x.get('title') or f'Chapter {i+1}' for i,x in enumerate(files)];names=[(data.get('chapters') or [{}]*len(files))[i].get('title') or names[i] for i in range(len(files))]
- title=data.get('title') or p['title'];safe=re.sub(r'[\\/:*?"<>|]+','_',title).strip() or 'Nextory';target=Path(folder)/f'{safe}.m4b';target.parent.mkdir(parents=True,exist_ok=True);TMP.mkdir(parents=True,exist_ok=True);work=Path(tempfile.mkdtemp(dir=TMP,prefix='nextory_'))
+ title=data.get('title') or p['title'];safe=re.sub(r'[\\/:*?"<>|]','_',title).strip() or 'Hörbuch';book_folder=Path(folder)/safe;book_folder.mkdir(parents=True,exist_ok=True);target=book_folder/f'{safe}.m4b';TMP.mkdir(parents=True,exist_ok=True);work=Path(tempfile.mkdtemp(dir=TMP,prefix='nextory_'))
  try:
   listing=work/'files.txt';meta=work/'meta.txt';ff=[';FFMETADATA1',f'title={title}',f"artist={data.get('author') or ', '.join(x['name'] for x in p.get('authors',[]))}",'genre=Audiobook']
   key_cache={};key_cache_lock=threading.Lock()
